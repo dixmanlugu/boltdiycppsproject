@@ -4,7 +4,7 @@ import { supabase } from '../../services/supabase';
 interface WorkerDetails {
   CCWDWorkerFirstName: string;
   CCWDWorkerLastName: string;
-  WorkerDOB: string;
+  CCWDWorkerDOB?: string | null;
   CCWDAnnualWage: string;
   CCWDCompensationAmount: string;
   CCWDMedicalExpenses: string;
@@ -23,7 +23,7 @@ interface InjuryCheckList {
 interface PersonalDetails {
   CCPDPersonFirstName: string;
   CCPDPersonLastName: string;
-  CCPDPersonDOB: string;
+ CCPDPersonDOB: string | null;  
   CCPDRelationToWorker: string;
   CCPDDegreeOfDependance: string;
   CCPDCompensationAmount: string;
@@ -37,6 +37,17 @@ interface CompensationBreakupDetailsViewProps {
 
 // currency → K
 const money = (n: number) => `K${(n || 0).toLocaleString()}`;
+
+// dd/mm/yyyy (safe)
+const pretty = (d?: string | Date | null) => {
+  if (!d) return '--';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return d; // show raw if unparsable
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+};
 
 const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewProps> = ({ IRN, DisplayIRN, IncidentType }) => {
   const [workerDetails, setWorkerDetails] = useState<WorkerDetails | null>(null);
@@ -54,29 +65,29 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
         const irnNumber = parseInt(IRN, 10);
         if (isNaN(irnNumber)) throw new Error('Invalid IRN: must be a number');
 
-        const { data: workerDetails, error: workerError } = await supabase
+        const { data: workerRow, error: workerError } = await supabase
           .from('claimcompensationworkerdetails')
           .select('*')
           .eq('IRN', irnNumber)
           .maybeSingle();
         if (workerError) throw workerError;
-        setWorkerDetails(workerDetails);
+       setWorkerDetails(workerRow as unknown as WorkerDetails | null);
 
         if (IncidentType === 'Injury') {
-          const { data: injuryCheckList, error: injuryError } = await supabase
+         const { data: injuryRows, error: injuryError } = await supabase
             .from('injurycasechecklist')
             .select('*')
             .eq('IRN', irnNumber);
           if (injuryError) throw injuryError;
-          setInjuryCheckList(injuryCheckList || []);
+          setInjuryCheckList(injuryRows || []); // ← was injuryCheckList
         }
 
-        const { data: personalDetails, error: personalError } = await supabase
+      const { data: personalRows, error: personalError } = await supabase
           .from('claimcompensationpersonaldetails')
           .select('*')
           .eq('IRN', irnNumber);
         if (personalError) throw personalError;
-        setPersonalDetails(personalDetails || []);
+        setPersonalDetails(personalRows || []); // ← was personalDetails
 
         setLoadingData(false);
       } catch (err: any) {
@@ -124,11 +135,17 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
     );
   }
 
+  // tolerate either CCWDWorkerDOB (preferred) or WorkerDOB (legacy)
+  const workerDOBRaw =
+    workerDetails.CCWDWorkerDOB ??
+    (workerDetails as any).WorkerDOB ??
+    null;
+	
   const data = {
     display_irn: DisplayIRN,
     worker_first_name: workerDetails.CCWDWorkerFirstName,
     worker_last_name: workerDetails.CCWDWorkerLastName,
-    date_of_birth: workerDetails.WorkerDOB,
+    worker_date_of_birth: pretty(workerDOBRaw),          // ← now formatted + shown
     annual_wage: parseFloat(workerDetails.CCWDAnnualWage) || 0,
     total_compensation: parseFloat(workerDetails.CCWDCompensationAmount) || 0,
     medical_expenses: parseFloat(workerDetails.CCWDMedicalExpenses) || 0,
@@ -137,9 +154,9 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
     deduction_notes: workerDetails.CCWDDeductionsNotes || '',
     is_injury_case: IncidentType === 'Injury',
     dependents: personalDetails.map(detail => ({
-      name: `${detail.CCPDPersonFirstName} ${detail.CCPDPersonLastName}`,
+      name: `${detail.CCPDPersonFirstName} ${detail.CCPDPersonLastName}`.trim(),
       relationship: detail.CCPDRelationToWorker,
-      date_of_birth: detail.CCPDPersonDOB,
+      date_of_birth: pretty(detail.CCPDPersonDOB),       // ← pretty format dependents' DOB to
       degree_of_dependence: detail.CCPDDegreeOfDependance,
       compensation_amount: parseFloat(detail.CCPDCompensationAmount) || 0
     }))
@@ -170,7 +187,7 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
             </p>
             <p className="text-textSecondary text-sm mt-2">
               <span className="font-medium">Date of Birth: </span>
-              {data.date_of_birth}
+            {data.worker_date_of_birth || '--'}
             </p>
           </div>
 

@@ -34,7 +34,7 @@ const ListForm6NotificationEmployerResponsePending: React.FC<ListForm6Notificati
   const [searchLastName, setSearchLastName] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [recordsPerPage] = useState(20);
+  const [recordsPerPage] = useState(10);
   const [userRegion, setUserRegion] = useState<string | null>(null);
   const [totalRecords, setTotalRecords] = useState(0);
   const [groupID, setGroupID] = useState<number | null>(null);

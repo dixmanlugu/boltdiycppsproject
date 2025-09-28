@@ -33,7 +33,7 @@ const ListPendingFormsPrescreeningReview: React.FC<ListPendingFormsPrescreeningR
   // paging
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [recordsPerPage] = useState(20);
+  const [recordsPerPage] = useState(10);
   const [totalRecords, setTotalRecords] = useState(0);
 
   // review modal

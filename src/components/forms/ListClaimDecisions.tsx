@@ -140,6 +140,16 @@ const ListClaimDecisions: React.FC<Props> = ({ irn }) => {
           }))
         }
 
+// Derive a displayable CPO name for Form 18 rows
+const cpoNameForForm18 = (() => {
+  const withId = (accpRows || []).find(r => Number(r.LockedByCPOID) > 0)
+  if (!withId) return 'Provincial Claims Officer'
+  const staff = staffMap.get(Number(withId.LockedByCPOID))
+  return staff?.name ? `${staff.name} (Provincial Claims Officer)` : 'Provincial Claims Officer'
+})()
+
+
+				
         // 6) Build decisions from all relevant sources (Tribunal intentionally commented out per request)
         const decisionsParts: Decision[][] = await Promise.all([
           // Time Barred Claims Registrar Review (ModelTBCRR)
@@ -199,36 +209,66 @@ const ListClaimDecisions: React.FC<Props> = ({ irn }) => {
           ),
 
           // Form 18 (ModalForm18Master) — employer / PCO / worker branches
-          fetchAndFormat(
-            'form18master',
-            'IRN, IncidentType, F18MStatus, F18MEmployerDecisionReason, F18MWorkerDecisionReason, F18MEmployerAcceptedDate, F18MWorkerAcceptedDate, F18MWorkerNotifiedDate',
-            (row: any) => {
-              let reason = '--'
-              let by = '--'
-              let raw: string | undefined
-              if (row.F18MStatus === 'EmployerAccepted') {
-                reason = row.F18MEmployerDecisionReason
-                by = 'Employer'
-                raw = row.F18MEmployerAcceptedDate
-              } else if (row.F18MStatus === 'WorkerAccepted') {
-                reason = row.F18MWorkerDecisionReason
-                by = 'Worker'
-                raw = row.F18MWorkerAcceptedDate
-              } else if (row.F18MStatus === 'NotifiedToWorker') {
-                by = 'PCO'
-                raw = row.F18MNotifiedToWorkerDate
-              }
-              return {
-                IRN: row.IRN,
-                submissionType: `${row.IncidentType} - Form18 Notification`,
-                status: row.F18MStatus,
-                reason,
-                takenBy: by,
-                decisionDate: pretty(raw),
-                decisionDateRaw: raw,
-              }
-            }
-          ),
+// Form 18 (ModalForm18Master) — always list up to THREE separate entries as the case progresses
+(async () => {
+  const { data, error } = await supabase
+    .from('form18master')
+    .select(
+      'IRN, IncidentType, F18MStatus, ' +
+      'F18MEmployerDecisionReason, F18MEmployerAcceptedDate, ' +
+      'F18MWorkerDecisionReason, F18MWorkerAcceptedDate, ' +
+      'F18MWorkerNotifiedDate'
+    )
+    .eq('IRN', irn)
+
+  if (error) throw error
+
+  const out: Decision[] = []
+  ;(data || []).forEach((row: any) => {
+    const submissionType = `${row.IncidentType} - Form18 Notification`
+
+    // 1) EmployerAccepted — include when status is EmployerAccepted OR later (NotifiedToWorker/WorkerAccepted)
+    if (['EmployerAccepted', 'NotifiedToWorker', 'WorkerAccepted'].includes(row.F18MStatus)) {
+      out.push({
+        IRN: row.IRN,
+        submissionType,
+        status: 'EmployerAccepted',
+        reason: row.F18MEmployerDecisionReason ?? '--',
+        takenBy: 'Employer',
+        decisionDate: pretty(row.F18MEmployerAcceptedDate),
+        decisionDateRaw: row.F18MEmployerAcceptedDate,
+      })
+    }
+
+    // 2) Notified to Worker — include when status is NotifiedToWorker OR later (WorkerAccepted)
+    if (['NotifiedToWorker', 'WorkerAccepted'].includes(row.F18MStatus)) {
+      out.push({
+        IRN: row.IRN,
+        submissionType,
+        status: 'Notified to Worker', // note the spaced label
+        reason: '--',
+        takenBy: cpoNameForForm18,
+        decisionDate: pretty(row.F18MWorkerNotifiedDate),
+        decisionDateRaw: row.F18MWorkerNotifiedDate,
+      })
+    }
+
+    // 3) WorkerAccepted — include only when status is WorkerAccepted
+    if (row.F18MStatus === 'WorkerAccepted') {
+      out.push({
+        IRN: row.IRN,
+        submissionType,
+        status: 'WorkerAccepted',
+        reason: row.F18MWorkerDecisionReason ?? '--',
+        takenBy: 'Worker',
+        decisionDate: pretty(row.F18MWorkerNotifiedDate),
+        decisionDateRaw: row.F18MWorkerAcceptedDate,
+      })
+    }
+  })
+
+  return out
+})(),
 
           // Approved Claims CPO Review (ModalACCR) — replicate legacy logic for status/takenBy + enrich with CPO name
           (async () => {
