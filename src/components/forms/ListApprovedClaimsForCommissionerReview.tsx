@@ -3,7 +3,11 @@ import { X, Search } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 
-interface ListApprovedClaimsForCommissionerReviewProps {
+// ✅ Read-only overlays for Approved lists
+import Decision224ChiefCommissionerApprovedInjury from './224DecisionChiefCommissionerApprovedInjury';
+import Decision225ChiefCommissionerApprovedDeath from './225DecisionChiefCommissionerApprovedDeath';
+
+interface ListApproveClaimsForCommissionerReviewProps {
   onClose: () => void;
   onSelectIRN?: (irn: string, incidentType: string) => void;
 }
@@ -18,11 +22,14 @@ interface ClaimData {
   CACRID: string;
 }
 
-const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCommissionerReviewProps> = ({ 
+type LockInfo = { id: number | null; name: string };
+
+const ListApproveClaimsForCommissionerReview: React.FC<ListApproveClaimsForCommissionerReviewProps> = ({
   onClose,
-  onSelectIRN 
+  onSelectIRN
 }) => {
   const { profile } = useAuth();
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [claimsList, setClaimsList] = useState<ClaimData[]>([]);
@@ -34,86 +41,136 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
   const [recordsPerPage] = useState(20);
   const [totalRecords, setTotalRecords] = useState(0);
 
+  // My staff ID (for "Locked by you")
+  const [myStaffId, setMyStaffId] = useState<number | null>(null);
+
+  // Lock info per IRN
+  const [locks, setLocks] = useState<Record<string, LockInfo>>({});
+
+  // Overlays
+  const [selectedIRN, setSelectedIRN] = useState('');
+  const [show224, setShow224] = useState(false); // Injury
+  const [show225, setShow225] = useState(false); // Death
+
+  // Load my staff id
+  useEffect(() => {
+    (async () => {
+      if (!profile?.id) return;
+      const { data, error } = await supabase
+        .from('owcstaffmaster')
+        .select('OSMStaffID')
+        .eq('cppsid', profile.id)
+        .maybeSingle();
+      if (!error && data?.OSMStaffID) {
+        setMyStaffId(Number(data.OSMStaffID));
+      }
+    })();
+  }, [profile?.id]);
+
   useEffect(() => {
     fetchClaimsList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, searchIRN, searchFirstName, searchLastName]);
+
+  const fetchLocks = async (irns: string[]) => {
+    try {
+      if (!irns.length) {
+        setLocks({});
+        return;
+      }
+
+      // 1) IRN -> LockedByID
+      const { data: lockRows, error: lockErr } = await supabase
+        .from('claimsawardedcommissionersreview')
+        .select('IRN, LockedByID')
+        .in('IRN', irns);
+      if (lockErr) throw lockErr;
+
+      const ids = Array.from(
+        new Set((lockRows || []).map((r: any) => r.LockedByID).filter((v: any) => v != null))
+      ) as number[];
+
+      // 2) Staff names for those IDs
+      let nameMap: Record<number, string> = {};
+      if (ids.length) {
+        const { data: staffRows } = await supabase
+          .from('owcstaffmaster')
+          .select('OSMStaffID, OSMFirstName, OSMLastName')
+          .in('OSMStaffID', ids);
+        (staffRows || []).forEach((s: any) => {
+          const nm = `${s.OSMFirstName ?? ''} ${s.OSMLastName ?? ''}`.trim();
+          nameMap[Number(s.OSMStaffID)] = nm || `User ${s.OSMStaffID}`;
+        });
+      }
+
+      // 3) Build IRN -> lock info
+      const map: Record<string, LockInfo> = {};
+      (lockRows || []).forEach((r: any) => {
+        const id = r.LockedByID != null ? Number(r.LockedByID) : null;
+        map[String(r.IRN)] = { id, name: id ? (nameMap[id] || `User ${id}`) : '' };
+      });
+      setLocks(map);
+    } catch (e) {
+      console.error('fetchLocks error:', e);
+      setLocks({});
+    }
+  };
 
   const fetchClaimsList = async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Build the base query for counting
+
+      // Count
       let countQuery = supabase
         .from('commissioner_approved_view')
         .select('*', { count: 'exact', head: true });
-      
-      // Apply filters if provided
-      if (searchIRN) {
-        countQuery = countQuery.ilike('DisplayIRN', `%${searchIRN}%`);
-      }
-      
-      if (searchFirstName) {
-        countQuery = countQuery.ilike('WorkerFirstName', `%${searchFirstName}%`);
-      }
-      
-      if (searchLastName) {
-        countQuery = countQuery.ilike('WorkerLastName', `%${searchLastName}%`);
-      }
-      
-      // Get the count
+
+      if (searchIRN) countQuery = countQuery.ilike('DisplayIRN', `%${searchIRN}%`);
+      if (searchFirstName) countQuery = countQuery.ilike('WorkerFirstName', `%${searchFirstName}%`);
+      if (searchLastName) countQuery = countQuery.ilike('WorkerLastName', `%${searchLastName}%`);
+
       const { count, error: countError } = await countQuery;
-      
       if (countError) throw countError;
-      
+
       const totalCount = count || 0;
       setTotalRecords(totalCount);
       setTotalPages(Math.ceil(totalCount / recordsPerPage));
-      
-      // Calculate pagination
+
       const start = (currentPage - 1) * recordsPerPage;
-      
-      // Build the main query
+
+      // Data
       let query = supabase
         .from('commissioner_approved_view')
         .select('*')
         .range(start, start + recordsPerPage - 1)
         .order('SubmissionDate', { ascending: false });
-      
-      // Apply filters if provided
-      if (searchIRN) {
-        query = query.ilike('DisplayIRN', `%${searchIRN}%`);
-      }
-      
-      if (searchFirstName) {
-        query = query.ilike('WorkerFirstName', `%${searchFirstName}%`);
-      }
-      
-      if (searchLastName) {
-        query = query.ilike('WorkerLastName', `%${searchLastName}%`);
-      }
-      
+
+      if (searchIRN) query = query.ilike('DisplayIRN', `%${searchIRN}%`);
+      if (searchFirstName) query = query.ilike('WorkerFirstName', `%${searchFirstName}%`);
+      if (searchLastName) query = query.ilike('WorkerLastName', `%${searchLastName}%`);
+
       const { data, error } = await query;
-      
       if (error) throw error;
-      
+
       if (!data || data.length === 0) {
         setClaimsList([]);
+        setLocks({});
         return;
       }
-      
-      // Format the data - use the formatted date directly from the view
-      const formattedData = data.map(item => ({
-        IRN: item.IRN,
+
+      const formattedData = data.map((item: any) => ({
+        IRN: String(item.IRN),
         DisplayIRN: item.DisplayIRN,
         WorkerFirstName: item.WorkerFirstName,
         WorkerLastName: item.WorkerLastName,
         SubmissionDate: item.SubmissionDate,
         IncidentType: item.IncidentType,
         CACRID: item.CACRID
-      }));
-      
+      })) as ClaimData[];
+
       setClaimsList(formattedData);
+      await fetchLocks(formattedData.map(d => d.IRN));
     } catch (err: any) {
       console.error('Error fetching claims list:', err);
       setError(err.message || 'Failed to load claims list');
@@ -124,35 +181,67 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setCurrentPage(1); // Reset to first page when searching
+    setCurrentPage(1);
     fetchClaimsList();
   };
 
+  // Open read-only overlay (no lock enforcement; just display)
   const handleView = (irn: string, incidentType: string) => {
     if (onSelectIRN) {
       onSelectIRN(irn, incidentType);
-    } else {
-      let url = '';
-      
-      // Determine the correct URL based on incident type
-      switch (incidentType) {
-        case 'Injury':
-          url = '/dashboard/commissioner/injury-view';
-          break;
-        case 'Death':
-          url = '/dashboard/commissioner/death-view';
-          break;
-      }
-      
-      if (url) {
-        window.location.href = `${url}?IRN=${irn}`;
-      }
+      return;
     }
+    setSelectedIRN(irn);
+    if (incidentType === 'Injury') setShow224(true);
+    else if (incidentType === 'Death') setShow225(true);
   };
 
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
+  const handleCloseOverlay = () => {
+    setShow224(false);
+    setShow225(false);
+    setSelectedIRN('');
+    // Optional: refresh lock badges
+    fetchLocks(claimsList.map(c => c.IRN));
   };
+
+  // Badge renderer (informational only)
+  const renderLockBadge = (irn: string) => {
+    const info = locks[irn];
+    if (!info || !info.id) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700">
+          Unlocked
+        </span>
+      );
+    }
+    if (myStaffId && info.id === myStaffId) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-green-100 text-green-800">
+          Locked by you
+        </span>
+      );
+    }
+    const isChief = info.id === 2811;
+    const isCommissioner = info.id === 2812;
+    const text = isChief
+      ? 'Locked by Chief Commissioner'
+      : isCommissioner
+      ? 'Locked by Commissioner'
+      : `Locked by ${info.name}`;
+    const color =
+      isChief
+        ? 'bg-purple-100 text-purple-800'
+        : isCommissioner
+        ? 'bg-blue-100 text-blue-800'
+        : 'bg-amber-100 text-amber-800';
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${color}`}>
+        {text}
+      </span>
+    );
+  };
+
+  const handlePageChange = (page: number) => setCurrentPage(page);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -183,7 +272,7 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
                   placeholder="Enter Display IRN"
                 />
               </div>
-              
+
               <div>
                 <label htmlFor="searchFirstName" className="block text-sm font-medium text-gray-700 mb-1">
                   Search by First Name
@@ -197,7 +286,7 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
                   placeholder="Enter First Name"
                 />
               </div>
-              
+
               <div>
                 <label htmlFor="searchLastName" className="block text-sm font-medium text-gray-700 mb-1">
                   Search by Last Name
@@ -212,12 +301,9 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
                 />
               </div>
             </div>
-            
+
             <div className="flex justify-end">
-              <button
-                type="submit"
-                className="btn btn-primary flex items-center"
-              >
+              <button type="submit" className="btn btn-primary flex items-center">
                 <Search className="h-4 w-4 mr-2" />
                 Search
               </button>
@@ -226,16 +312,11 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
 
           <hr className="mb-6" />
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md">
-              {error}
-            </div>
-          )}
+          {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md">{error}</div>}
 
           <div className="mb-4">
             <p className="text-sm text-gray-600">
-              Total Records Found: {totalRecords} | 
-              Total Pages: {totalPages}
+              Total Records Found: {totalRecords} | Total Pages: {totalPages}
             </p>
           </div>
 
@@ -248,43 +329,27 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      CRN
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      First Name
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Last Name
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Submission Date
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Incident Type
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Action
-                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CRN</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submission Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incident Type</th>
+                    {/* NEW: Lock */}
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lock</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {claimsList.map((claim, index) => (
                     <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {claim.DisplayIRN}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {claim.WorkerFirstName}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {claim.WorkerLastName}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {claim.SubmissionDate}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {claim.IncidentType}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{claim.DisplayIRN}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{claim.WorkerFirstName}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{claim.WorkerLastName}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{claim.SubmissionDate}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{claim.IncidentType}</td>
+                      {/* Badge */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {renderLockBadge(claim.IRN)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <button
@@ -305,41 +370,35 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
             </div>
           )}
 
+          {/* Overlays */}
+          {show224 && (
+            <Decision224ChiefCommissionerApprovedInjury
+              IRN={selectedIRN}
+              onCloseAll={handleCloseOverlay}
+            />
+          )}
+          {show225 && (
+            <Decision225ChiefCommissionerApprovedDeath
+              IRN={selectedIRN}
+              onCloseAll={handleCloseOverlay}
+            />
+          )}
+
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="mt-6 flex justify-center">
               <div className="flex space-x-2">
                 {currentPage > 1 && (
                   <>
-                    <button
-                      onClick={() => handlePageChange(1)}
-                      className="px-3 py-1 border rounded text-sm"
-                    >
-                      First
-                    </button>
-                    <button
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      className="px-3 py-1 border rounded text-sm"
-                    >
-                      Previous
-                    </button>
+                    <button onClick={() => handlePageChange(1)} className="px-3 py-1 border rounded text-sm">First</button>
+                    <button onClick={() => handlePageChange(currentPage - 1)} className="px-3 py-1 border rounded text-sm">Previous</button>
                   </>
                 )}
-                
+
                 {currentPage < totalPages && (
                   <>
-                    <button
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      className="px-3 py-1 border rounded text-sm"
-                    >
-                      Next
-                    </button>
-                    <button
-                      onClick={() => handlePageChange(totalPages)}
-                      className="px-3 py-1 border rounded text-sm"
-                    >
-                      Last
-                    </button>
+                    <button onClick={() => handlePageChange(currentPage + 1)} className="px-3 py-1 border rounded text-sm">Next</button>
+                    <button onClick={() => handlePageChange(totalPages)} className="px-3 py-1 border rounded text-sm">Last</button>
                   </>
                 )}
               </div>
@@ -351,4 +410,4 @@ const ListApprovedClaimsForCommissionerReview: React.FC<ListApprovedClaimsForCom
   );
 };
 
-export default ListApprovedClaimsForCommissionerReview;
+export default ListApproveClaimsForCommissionerReview;

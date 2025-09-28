@@ -110,13 +110,59 @@ const Decision224ChiefCommissionerApprovedInjury: React.FC<Props> = ({
 
   const handleClose = () => onCloseAll?.();
 
-  const handlePreviewPdf = async () => {
+  // FINAL (non-preview) Consent of Award: includes stamp + signature
+  const handleDownloadFinalPdf = async () => {
     if (!resolvedIRN) return;
+
+    const crestUrl =
+      'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/public/cpps/logocrest.png';
+
+    // role checks
+    const isChief = myStaffId === 2811;
+    const isCommissioner = myStaffId === 2812;
+    // (kept for any future logic; currently both use the same assets/flow)
+    void isCommissioner;
+
+    const stampUrl = isChief
+      ? 'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/sign/cpps/Commissionstamp.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8xMmRkZDBlOC05MjU4LTQ5ZmEtYTUyYy03NmRlZDY5MTM4OTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJjcHBzL0NvbW1pc3Npb25zdGFtcC5wbmciLCJpYXQiOjE3NTQxNTA3MDIsImV4cCI6MjA2OTUxMDcwMn0.ET2gqM5ln9zbJbb5jH1gMHFz42HazTIoQ5s-BaUlADU'
+      : 'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/sign/cpps/Commissionstamp.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8xMmRkZDBlOC05MjU4LTQ5ZmEtYTUyYy03NmRlZDY5MTM4OTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJjcHBzL0NvbW1pc3Npb25zdGFtcC5wbmciLCJpYXQiOjE3NTQxNTA3MDIsImV4cCI6MjA2OTUxMDcwMn0.ET2gqM5ln9zbJbb5jH1gMHFz42HazTIoQ5s-BaUlADU';
+
+    const signatureUrl = isChief
+      ? 'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/sign/cpps/Comsignature.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8xMmRkZDBlOC05MjU4LTQ5ZmEtYTUyYy03NmRlZDY5MTM4OTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJjcHBzL0NvbXNpZ25hdHVyZS5wbmciLCJpYXQiOjE3NTQxNTA4ODAsImV4cCI6MjA2OTUxMDg4MH0.R4wqJdga2M1RJZ1uxxG_0VgeFd-66fHIT9sscQGgYeE'
+      : 'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/sign/cpps/Comsignature.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8xMmRkZDBlOC05MjU4LTQ5ZmEtYTUyYy03NmRlZDY5MTM4OTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJjcHBzL0NvbXNpZ25hdHVyZS5wbmciLCJpYXQiOjE3NTQxNTA4ODAsImV4cCI6MjA2OTUxMDg4MH0.R4wqJdga2M1RJZ1uxxG_0VgeFd-66fHIT9sscQGgYeE';
+
     await downloadConsentOfAwardInjury(resolvedIRN, {
-      crestUrl:
-        'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/public/cpps/logocrest.png',
-      includeSignature: false, // preview only
+      crestUrl,
+      includeSignature: true,
+      signatureUrl,
+      stampUrl,
     });
+  };
+
+  // Helpers to call jsPDF utilities for Form 6 / Form 18.
+  // Using dynamic imports so it works whether the util exports default or a named function.
+  const handlePrintForm6 = async () => {
+    if (!resolvedIRN) return;
+    const mod = await import('../../utils/form6CPO_jspdf');
+    const fn = (mod as any).default ?? (mod as any).printForm6CPO ?? (mod as any).generateForm6;
+    if (typeof fn === 'function') {
+      await fn(resolvedIRN);
+    } else {
+      console.error('form6CPO_jspdf export not found');
+      alert('Form 6 printer is not available.');
+    }
+  };
+
+  const handlePrintForm18 = async () => {
+    if (!resolvedIRN) return;
+    const mod = await import('../../utils/form18CPO_jspdf');
+    const fn = (mod as any).default ?? (mod as any).printForm18CPO ?? (mod as any).generateForm18;
+    if (typeof fn === 'function') {
+      await fn(resolvedIRN);
+    } else {
+      console.error('form18CPO_jspdf export not found');
+      alert('Form 18 printer is not available.');
+    }
   };
 
   const isChief = myStaffId === 2811;
@@ -211,24 +257,8 @@ const Decision224ChiefCommissionerApprovedInjury: React.FC<Props> = ({
           if (carrInsErr) throw carrInsErr;
         }
 
-        // Download final PDF with the correct stamp & signature for the acting user
-        const crestUrl =
-          'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/public/cpps/logocrest.png';
-
-        const stampUrl = isChief
-          ? 'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/sign/cpps/Commissionstamp.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8xMmRkZDBlOC05MjU4LTQ5ZmEtYTUyYy03NmRlZDY5MTM4OTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJjcHBzL0NvbW1pc3Npb25zdGFtcC5wbmciLCJpYXQiOjE3NTQxNTA3MDIsImV4cCI6MjA2OTUxMDcwMn0.ET2gqM5ln9zbJbb5jH1gMHFz42HazTIoQ5s-BaUlADU'
-          : 'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/sign/cpps/Commissionstamp.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8xMmRkZDBlOC05MjU4LTQ5ZmEtYTUyYy03NmRlZDY5MTM4OTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJjcHBzL0NvbW1pc3Npb25zdGFtcC5wbmciLCJpYXQiOjE3NTQxNTA3MDIsImV4cCI6MjA2OTUxMDcwMn0.ET2gqM5ln9zbJbb5jH1gMHFz42HazTIoQ5s-BaUlADU';
-
-        const signatureUrl = isChief
-          ? 'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/sign/cpps/Comsignature.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8xMmRkZDBlOC05MjU4LTQ5ZmEtYTUyYy03NmRlZDY5MTM4OTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJjcHBzL0NvbXNpZ25hdHVyZS5wbmciLCJpYXQiOjE3NTQxNTA4ODAsImV4cCI6MjA2OTUxMDg4MH0.R4wqJdga2M1RJZ1uxxG_0VgeFd-66fHIT9sscQGgYeE'
-          : 'https://ennhknwwfdlaudephyly.supabase.co/storage/v1/object/sign/cpps/Comsignature.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8xMmRkZDBlOC05MjU4LTQ5ZmEtYTUyYy03NmRlZDY5MTM4OTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJjcHBzL0NvbXNpZ25hdHVyZS5wbmciLCJpYXQiOjE3NTQxNTA4ODAsImV4cCI6MjA2OTUxMDg4MH0.R4wqJdga2M1RJZ1uxxG_0VgeFd-66fHIT9sscQGgYeE';
-
-        await downloadConsentOfAwardInjury(resolvedIRN, {
-          crestUrl,
-          includeSignature: true,
-          signatureUrl,
-          stampUrl,
-        });
+        // Also generate the final certificate now (with stamp/signature)
+        await handleDownloadFinalPdf();
 
         handleClose();
         return;
@@ -306,21 +336,38 @@ const Decision224ChiefCommissionerApprovedInjury: React.FC<Props> = ({
               )}
             </section>
 
-            {/* Notice / Download preview */}
+            {/* Final certificate + print forms */}
             <section className="border rounded-lg p-4 bg-amber-50">
               <p className="text-sm text-amber-800 mb-3">
-                <strong>Note:</strong> You can generate a preview of the consent of award certificate
-                without the Commissioner's Signature. The final version will be generated only after
-                the approval of the Commissioner or Chief Commissioner.
+                <strong>Note:</strong> Use the buttons below to generate the <em>final</em> Consent of Award
+                (with Commission stamp & signature), or to print Form 6 / Form 18 for this case.
               </p>
-              <div className="flex items-center gap-2 text-sm">
-                <span>Generate Consent Of Award Certificate for Injury Case :</span>
+
+              <div className="flex flex-wrap items-center gap-2 text-sm">
                 <button
                   type="button"
                   className="px-3 py-1.5 bg-primary hover:bg-primary-dark text-white rounded-md"
-                  onClick={handlePreviewPdf}
+                  onClick={handleDownloadFinalPdf}
                 >
-                  Download To PDF
+                  Download Consent Of Award (Final PDF)
+                </button>
+
+                <span className="mx-2 h-5 w-px bg-amber-300" aria-hidden />
+
+                <button
+                  type="button"
+                  className="px-3 py-1.5 border border-primary text-primary hover:bg-primary/5 rounded-md"
+                  onClick={handlePrintForm6}
+                >
+                  Print Form6
+                </button>
+
+                <button
+                  type="button"
+                  className="px-3 py-1.5 border border-primary text-primary hover:bg-primary/5 rounded-md"
+                  onClick={handlePrintForm18}
+                >
+                  Print Form18
                 </button>
               </div>
             </section>
@@ -371,4 +418,3 @@ const Decision224ChiefCommissionerApprovedInjury: React.FC<Props> = ({
 };
 
 export default Decision224ChiefCommissionerApprovedInjury;
- 

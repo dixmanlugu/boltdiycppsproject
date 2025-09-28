@@ -1,16 +1,15 @@
 import React, { useEffect, useState } from 'react'
-//import format from 'date-fns/format'
-//import './styles.css'
 import { supabase } from '../../services/supabase'
-import { Search, Filter, Calendar, AlertCircle, FileText } from 'lucide-react';
-
 
 interface Decision {
   submissionType: string
   status: string
   reason: string
   takenBy: string
+  /** formatted for display (dd/mm/yyyy) */
   decisionDate?: string
+  /** raw ISO date (used for sorting) */
+  decisionDateRaw?: string
   displayIRN?: string
   IRN?: number
 }
@@ -23,218 +22,504 @@ interface PaymentDetail {
   issuedBy: string
 }
 
-interface CaseHistoryContainerProps {
+interface Props {
   irn: number
 }
 
-const ListClaimDecisions: React.FC<CaseHistoryContainerProps> = ({ irn }) => {
+// Local date formatter (dd/mm/yyyy)
+const pretty = (d?: string | null) => {
+  if (!d) return ''
+  const dt = new Date(d)
+  if (isNaN(dt.getTime())) return ''
+  const dd = String(dt.getDate()).padStart(2, '0')
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const yyyy = dt.getFullYear()
+  return `${dd}/${mm}/${yyyy}`
+}
+
+const ListClaimDecisions: React.FC<Props> = ({ irn }) => {
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [payments, setPayments] = useState<PaymentDetail[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchAllCaseData = async (irn: number) => {
-      let allDecisions: Decision[] = []
-      let allPayments: PaymentDetail[] = []
-
-const pretty = (d?: string | null) =>
-  d ? new Date(d).toLocaleDateString('en-GB') : '';
-
-
-			
-      const fetchAndFormat = async (
-        table: string,
-        selectFields: string,
-        formatter: (row: any) => Decision
-      ) => {
-        const { data, error } = await supabase.from(table).select(selectFields).eq('IRN', irn)
-        if (error) throw error
-        return (data || []).map(formatter)
-      }
-
-      const tables = await Promise.all([
-        fetchAndFormat('timebarredclaimsregistrarreview', 'IRN, TBCRRFormType, TBCRRReviewStatus, TBCRRDecisionReason, TBCRRDecisionDate', row => ({
-          IRN: row.IRN, submissionType: `${row.TBCRRFormType} - TimeBarred`, status: row.TBCRRReviewStatus, reason: row.TBCRRDecisionReason, takenBy: 'Registrar', decisionDate: pretty(row.TBCRRDecisionDate)
-        })),
-        fetchAndFormat('prescreening_view', '*', row => ({
-          IRN: row.IRN, submissionType: row.PRFormType, status: row.PRStatus, reason: row.PRDecisionReason, takenBy: 'Deputy Registrar', decisionDate: pretty(row.PRSubmissionDate)
-        })),
-        fetchAndFormat('registrarreview', 'IRN, IncidentType, RRStatus, RRDecisionReason, RRDecisionDate', row => ({
-          IRN: row.IRN, submissionType: row.IncidentType, status: row.RRStatus, reason: row.RRDecisionReason, takenBy: 'Registrar', decisionDate: pretty(row.RRDecisionDate)
-        })),
-        fetchAndFormat('form6master', 'IRN, IncidentType, F6MStatus, F6MApprovalDate', row => ({
-          IRN: row.IRN, submissionType: `${row.IncidentType} (Form6)`, status: `${row.F6MStatus} (Notification Received - Insurance Company)`, reason: '--', takenBy: '--', decisionDate: pretty(row.F6MApprovalDate)
-        })),
-        fetchAndFormat('form18master', 'IRN, IncidentType, F18MStatus, F18MEmployerDecisionReason, F18MWorkerDecisionReason, F18MWorkerAcceptedDate', row => {
-          let reason = '--', by = '--'
-          if (row.F18MStatus === 'EmployerAccepted') {
-            reason = row.F18MEmployerDecisionReason
-            by = 'Employer'
-          } else if (row.F18MStatus === 'WorkerAccepted') {
-            reason = row.F18MWorkerDecisionReason
-            by = 'Worker'
-          } else if (row.F18MStatus === 'NotifiedToWorker') {
-            by = 'PCO'
-          }
-          return { IRN: row.IRN, submissionType: `${row.IncidentType} - Form18 Notification`, status: row.F18MStatus, reason, takenBy: by, decisionDate: pretty(row.F18MWorkerAcceptedDate) }
-        }),
-     /*   fetchAndFormat('tribunalhearingschedule', 'IRN, THSHearingType, THSHearingStatus, THSDecisionDate', row => ({
-          IRN: row.IRN, submissionType: `${row.THSHearingType || 'Tribunal'} Schedule`, status: row.THSHearingStatus || 'Pending', reason: 'To Be Taken', takenBy: 'Tribunal', decisionDate: row.THSDecisionDate
-        })),
-        fetchAndFormat('tribunalhearingoutcome', 'IRN, THOStatus, THODetails, THODecisionDate', row => ({
-          IRN: row.IRN, submissionType: `Tribunal Outcome`, status: row.THOStatus || '', reason: row.THODetails || '', takenBy: 'Tribunal', decisionDate: row.THODecisionDate
-        })), */
-        fetchAndFormat('approvedclaimscporeview', 'IRN, IncidentType, CPORStatus, LockedByCPOID, CPORApprovedDate', row => {
-          let status = row.CPORStatus || 'Review Pending'
-          let takenBy = 'Provincial Claims Officer'
-          if (status === 'CompensationCalculated') takenBy = 'CPO'
-          else if (row.LockedByCPOID > 0) takenBy = 'CPO'
-          return { IRN: row.IRN, submissionType: row.IncidentType, status, reason: '--', takenBy, decisionDate: pretty(row.CPORApprovedDate) }
-        }),
-        fetchAndFormat('compensationcalculationcommissionersreview', 'IRN, IncidentType, CCCRReviewStatus, CCCRDecisionReason, CCCRDecisionDate', row => ({
-          IRN: row.IRN, submissionType: row.IncidentType, status: row.CCCRReviewStatus, reason: row.CCCRDecisionReason, takenBy: row.CCCRReviewStatus?.startsWith('Chief') ? 'Chief Commissioner' : 'Commissioner', decisionDate: pretty(row.CCCRDecisionDa)
-        })),
-        fetchAndFormat('claimsawardedcommissionersreview', 'IRN, IncidentType, CACRReviewStatus, CACRDecisionReason, CACRDecisionDate', row => ({
-          IRN: row.IRN, submissionType: row.IncidentType, status: row.CACRReviewStatus, reason: row.CACRDecisionReason, takenBy: row.CACRReviewStatus?.startsWith('Chief') ? 'Chief Commissioner' : 'Commissioner', decisionDate: pretty(row.CACRDecisionDate)
-        })),
-       fetchAndFormat('compensationcalculationcpmreview', 'IRN, IncidentType, CPMRStatus, CPMRDecisionReason, CPMRDecisionDate', row => ({
-          IRN: row.IRN, submissionType: row.IncidentType, status: row.CPMRStatus, reason: row.CPMRDecisionReason, takenBy: 'CPM', decisionDate: pretty(row.CPMRDecisionDate)
-        })), 
-        fetchAndFormat('claimsawardedregistrarreview', 'IRN, IncidentType, CARRReviewStatus, CARRDecisionReason, CARRDecisionDate', row => ({
-          IRN: row.IRN, submissionType: row.IncidentType, status: row.CARRReviewStatus, reason: row.CARRDecisionReason, takenBy: 'Registrar', decisionDate: pretty(row.CARRDecisionDate)
-        })),
-      /*  fetchAndFormat('compensationcalculationregistrarreview', 'IRN, IncidentType, CCRReviewStatus, CCRDecisionReason, CCRDecisionDate', row => ({
-          IRN: row.IRN, submissionType: row.IncidentType, status: row.CCRReviewStatus, reason: row.CCRDecisionReason, takenBy: 'Registrar', decisionDate: pretty(row.CCRDecisionDate)
-        })),
-        fetchAndFormat('claimsawardedcpmreview', 'IRN, IncidentType, CPMRStatus, CPMRDecisionReason, CPMRDecisionDate', row => ({
-        IRN: row.IRN, submissionType: row.IncidentType, status: row.CPMRStatus, reason: row.CPMRDecisionReason, takenBy: 'CPM', decisionDate: pretty(row.CPMRDecisionDate)
-        })), 
-        fetchAndFormat('tribunalreview', 'IRN, TRReviewStatus, TRReviewReason, TRReviewDate', row => ({
-          IRN: row.IRN, submissionType: 'Tribunal Review', status: row.TRReviewStatus, reason: row.TRReviewReason, takenBy: 'Tribunal', decisionDate: row.TRReviewDate
-        }))*/
-      ])
-
-      allDecisions = tables.flat()
-
-      const irns = allDecisions.map(d => d.IRN)
-      const { data: irnData } = await supabase.from('form1112master').select('IRN, DisplayIRN').in('IRN', irns)
-      const irnMap = new Map<number, string>()
-      irnData?.forEach(row => irnMap.set(row.IRN, row.DisplayIRN))
-      allDecisions = allDecisions.map(d => ({ ...d, displayIRN: irnMap.get(d.IRN!) || 'N/A' }))
-
-      const { data: badmData } = await supabase.from('bankaccountdepositmaster').select('*').eq('IRN', irn)
-      if (badmData?.length) {
-        const b = badmData[0]
-        allPayments.push({
-          bankName: b.BankName,
-          chequeNo: b.CheckNo,
-          issueDate: format(new Date(b.IssuedDate), 'dd/MM/yyyy'),
-          compensationAmount: b.ChequeCompensationAmount,
-          issuedBy: 'Insurance Provider',
-        })
-      }
-
-      const { data: occdData } = await supabase.from('owcclaimchequedetails').select('*').eq('IRN', irn)
-      if (occdData?.length) {
-        const o = occdData[0]
-        allPayments.push({
-          bankName: o.OCCDBankName,
-          chequeNo: o.OCCDChequeNumber,
-          issueDate: format(new Date(o.OCCDIssueDate), 'dd/MM/yyyy'),
-          compensationAmount: o.OCCDChequeAmount,
-          issuedBy: 'OWC Trust',
-        })
-      }
-
-      return { decisions: allDecisions, payments: allPayments }
-    }
-
-    const loadData = async () => {
+    const load = async () => {
       try {
         setLoading(true)
         setError(null)
-        const { decisions, payments } = await fetchAllCaseData(irn)
-        setDecisions(decisions)
-        setPayments(payments)
-      } catch (err: any) {
-        setError(err.message || 'Failed to load case data')
+
+        // 1) Pre-fetch CPO rows so we can enrich with staff/region names
+        const { data: accpRows, error: accpErr } = await supabase
+          .from('approvedclaimscporeview')
+          .select('IRN, IncidentType, CPORStatus, LockedByCPOID, CPORApprovedDate')
+          .eq('IRN', irn)
+        if (accpErr) throw accpErr
+
+        // Collect CPO staff IDs from those rows
+        const cpoIds = Array.from(
+          new Set((accpRows ?? []).map(r => Number(r.LockedByCPOID)).filter(id => id > 0))
+        )
+
+        // 2) Look up CPO staff names + regions
+        let staffMap = new Map<number, { name: string; region?: string }>()
+        if (cpoIds.length) {
+          const { data: staff, error: staffErr } = await supabase
+            .from('owcstaffmaster')
+            .select('OSMStaffID, OSMFirstName, OSMLastName, InchargeRegion')
+            .in('OSMStaffID', cpoIds)
+          if (staffErr) throw staffErr
+          staff?.forEach((s: any) => {
+            const name = `${s.OSMFirstName ?? ''} ${s.OSMLastName ?? ''}`.trim()
+            staffMap.set(Number(s.OSMStaffID), { name, region: s.InchargeRegion || undefined })
+          })
+        }
+
+        // 3) If we learned regions from CPOs, fetch CPM names by region
+        const regions = Array.from(
+          new Set(Array.from(staffMap.values()).map(v => v.region).filter(Boolean) as string[])
+        )
+        let cpmByRegion = new Map<string, string>()
+        if (regions.length) {
+          const { data: cpms, error: cpmErr } = await supabase
+            .from('owcstaffmaster')
+            .select('OSMFirstName, OSMID, OSMLastName, InchargeRegion')
+            .eq('OSMDesignation', 'Claims Manager')
+            .in('InchargeRegion', regions)
+          if (cpmErr) throw cpmErr
+          cpms?.forEach((c: any) => {
+            const name = `${c.OSMFirstName ?? ''} ${c.OSMLastName ?? ''}`.trim()
+            if (c.InchargeRegion) cpmByRegion.set(c.InchargeRegion, `${name} (Claims Manager)`) // match old UI
+          })
+        }
+
+        // 4) Helper to run a table query and map rows → Decision[]
+        const fetchAndFormat = async (
+          table: string,
+          selectFields: string,
+          map: (row: any) => Decision
+        ) => {
+          const { data, error } = await supabase.from(table).select(selectFields).eq('IRN', irn)
+          if (error) throw error
+          return (data || []).map(map)
+        }
+
+				 // 5) Try both possible CCR table names to ensure parity with legacy (ModelCCR)
+				   const fetchCCR = async (): Promise<Decision[]> => {
+          // Newer schema name first
+        {/*  const try1 = await supabase
+            .from('compensationcalculationregistrarreview')
+            .select('IRN, IncidentType, CCRReviewStatus, CCRDecisionReason, CCRDecisionDate')
+            .eq('IRN', irn)
+          if (try1.error && try1.error.code !== 'PGRST116') throw try1.error
+          if (try1.data && try1.data.length) {
+            return try1.data.map((row: any) => ({
+              IRN: row.IRN,
+              submissionType: row.IncidentType,
+              status: row.CCRReviewStatus,
+              reason: row.CCRDecisionReason,
+              takenBy: 'Registrar',
+              decisionDate: pretty(row.CCRDecisionDate),
+              decisionDateRaw: row.CCRReviewStatus ? row.CCRDecisionDate : undefined,
+            }))
+          } */}
+          // Fallback to legacy table name
+          const try2 = await supabase
+            .from('compensationcalculationreview')
+            .select('IRN, IncidentType, CCRReviewStatus, CCRDecisionReason, CCRDecisionDate')
+            .eq('IRN', irn)
+          if (try2.error && try2.error.code !== 'PGRST116') throw try2.error
+          return (try2.data || []).map((row: any) => ({
+            IRN: row.IRN,
+            submissionType: row.IncidentType,
+            status: row.CCRReviewStatus,
+            reason: row.CCRDecisionReason,
+            takenBy: 'Registrar',
+            decisionDate: pretty(row.CCRDecisionDate),
+            decisionDateRaw: row.CCRDecisionDate,
+          }))
+        }
+
+        // 6) Build decisions from all relevant sources (Tribunal intentionally commented out per request)
+        const decisionsParts: Decision[][] = await Promise.all([
+          // Time Barred Claims Registrar Review (ModelTBCRR)
+          fetchAndFormat(
+            'timebarredclaimsregistrarreview',
+            'IRN, TBCRRFormType, TBCRRReviewStatus, TBCRRDecisionReason, TBCRRDecisionDate',
+            (row: any) => ({
+              IRN: row.IRN,
+              submissionType: `${row.TBCRRFormType} - TimeBarred`,
+              status: row.TBCRRReviewStatus,
+              reason: row.TBCRRDecisionReason,
+              takenBy: 'Registrar',
+              decisionDate: pretty(row.TBCRRDecisionDate),
+              decisionDateRaw: row.TBCRRDecisionDate,
+            })
+          ),
+
+          // Deputy Registrar (ModalPR) — current app uses a view
+          fetchAndFormat('prescreening_view', '*', (row: any) => ({
+            IRN: row.IRN,
+            submissionType: row.PRFormType,
+            status: row.PRStatus,
+            reason: row.PRDecisionReason,
+            takenBy: 'Deputy Registrar',
+            decisionDate: pretty(row.PRSubmissionDate || row.PRDecisionDate),
+            decisionDateRaw: row.PRSubmissionDate || row.PRDecisionDate,
+          })),
+
+          // Registrar (ModalRegistrarReview)
+          fetchAndFormat(
+            'registrarreview',
+            'IRN, IncidentType, RRStatus, RRDecisionReason, RRDecisionDate',
+            (row: any) => ({
+              IRN: row.IRN,
+              submissionType: row.IncidentType,
+              status: row.RRStatus,
+              reason: row.RRDecisionReason,
+              takenBy: 'Registrar',
+              decisionDate: pretty(row.RRDecisionDate),
+              decisionDateRaw: row.RRDecisionDate,
+            })
+          ),
+
+          // Form 6 (ModelForm6Master)
+          fetchAndFormat(
+            'form6master',
+            'IRN, IncidentType, F6MStatus, F6MApprovalDate',
+            (row: any) => ({
+              IRN: row.IRN,
+              submissionType: `${row.IncidentType} (Form6)`,
+              status: `${row.F6MStatus} (Notification Received - Insurance Company)`,
+              reason: '--',
+              takenBy: '--',
+              decisionDate: pretty(row.F6MApprovalDate),
+              decisionDateRaw: row.F6MApprovalDate,
+            })
+          ),
+
+          // Form 18 (ModalForm18Master) — employer / PCO / worker branches
+          fetchAndFormat(
+            'form18master',
+            'IRN, IncidentType, F18MStatus, F18MEmployerDecisionReason, F18MWorkerDecisionReason, F18MEmployerAcceptedDate, F18MWorkerAcceptedDate, F18MWorkerNotifiedDate',
+            (row: any) => {
+              let reason = '--'
+              let by = '--'
+              let raw: string | undefined
+              if (row.F18MStatus === 'EmployerAccepted') {
+                reason = row.F18MEmployerDecisionReason
+                by = 'Employer'
+                raw = row.F18MEmployerAcceptedDate
+              } else if (row.F18MStatus === 'WorkerAccepted') {
+                reason = row.F18MWorkerDecisionReason
+                by = 'Worker'
+                raw = row.F18MWorkerAcceptedDate
+              } else if (row.F18MStatus === 'NotifiedToWorker') {
+                by = 'PCO'
+                raw = row.F18MNotifiedToWorkerDate
+              }
+              return {
+                IRN: row.IRN,
+                submissionType: `${row.IncidentType} - Form18 Notification`,
+                status: row.F18MStatus,
+                reason,
+                takenBy: by,
+                decisionDate: pretty(raw),
+                decisionDateRaw: raw,
+              }
+            }
+          ),
+
+          // Approved Claims CPO Review (ModalACCR) — replicate legacy logic for status/takenBy + enrich with CPO name
+          (async () => {
+            const rows = accpRows || []
+            return rows.map((row: any) => {
+              let status: string
+              let takenBy: string
+              const staff = row.LockedByCPOID ? staffMap.get(Number(row.LockedByCPOID)) : undefined
+              const cpoName = staff?.name ? `${staff.name} (Provincial Claims Officer)` : 'Provincial Claims Officer'
+
+              if (row.CPORStatus !== 'CompensationCalculated') {
+                if (!row.LockedByCPOID || Number(row.LockedByCPOID) === 0) {
+                  status = 'Review Pending'
+                  takenBy = 'Provincial Claims Officer'
+                } else {
+                  status = 'Review in Progress'
+                  takenBy = cpoName
+                }
+              } else {
+                status = 'Compensation Calculated'
+                takenBy = cpoName
+              }
+
+              return {
+                IRN: row.IRN,
+                submissionType: row.IncidentType,
+                status,
+                reason: '--',
+                takenBy,
+                decisionDate: pretty(row.CPORApprovedDate),
+                decisionDateRaw: row.CPORApprovedDate,
+              } as Decision
+            })
+          })(),
+
+          // Compensation Calculation Registrar Review (ModelCCR)
+          fetchCCR(),
+
+          // Compensation Calculation Commissioner Review (ModelCCCR)
+          fetchAndFormat(
+            'compensationcalculationcommissionersreview',
+            'IRN, IncidentType, CCCRReviewStatus, CCCRDecisionReason, CCCRDecisionDate',
+            (row: any) => ({
+              IRN: row.IRN,
+              submissionType: row.IncidentType,
+              status: row.CCCRReviewStatus,
+              reason: row.CCCRDecisionReason,
+              takenBy: (row.CCCRReviewStatus || '').startsWith('Chief') ? 'Chief Commissioner' : 'Commissioner',
+              decisionDate: pretty(row.CCCRDecisionDate),
+              decisionDateRaw: row.CCCRDecisionDate,
+            })
+          ),
+
+          // Compensation Calculation CPM Review (ModelCCCPM) — enrich takenBy with CPM name when we know the region
+          fetchAndFormat(
+            'compensationcalculationcpmreview',
+            'IRN, IncidentType, CPMRStatus, CPMRDecisionReason, CPMRDecisionDate',
+            (row: any) => {
+              // Pick the first region we learned (legacy took it from CPO name)
+              const region = regions[0]
+              const cpmName = region ? cpmByRegion.get(region) : undefined
+              return {
+                IRN: row.IRN,
+                submissionType: row.IncidentType,
+                status: row.CPMRStatus,
+                reason: row.CPMRDecisionReason,
+                takenBy: cpmName || 'CPM',
+                decisionDate: pretty(row.CPMRDecisionDate),
+                decisionDateRaw: row.CPMRDecisionDate,
+              }
+            }
+          ),
+
+          // Commissioner after Award (ModalCACR)
+          fetchAndFormat(
+            'claimsawardedcommissionersreview',
+            'IRN, IncidentType, CACRReviewStatus, CACRDecisionReason, CACRDecisionDate',
+            (row: any) => ({
+              IRN: row.IRN,
+              submissionType: row.IncidentType,
+              status: row.CACRReviewStatus,
+              reason: row.CACRDecisionReason,
+              takenBy: (row.CACRReviewStatus || '').startsWith('Chief') ? 'Chief Commissioner' : 'Commissioner',
+              decisionDate: pretty(row.CACRDecisionDate),
+              decisionDateRaw: row.CACRDecisionDate,
+            })
+          ),
+
+          // Registrar after Award (ModalCARR)
+          fetchAndFormat(
+            'claimsawardedregistrarreview',
+            'IRN, IncidentType, CARRReviewStatus, CARRDecisionReason, CARRDecisionDate',
+            (row: any) => ({
+              IRN: row.IRN,
+              submissionType: row.IncidentType,
+              status: row.CARRReviewStatus,
+              reason: row.CARRDecisionReason,
+              takenBy: 'Registrar',
+              decisionDate: pretty(row.CARRDecisionDate),
+              decisionDateRaw: row.CARRDecisionDate,
+            })
+          ),
+
+          /*
+          // ─────────────────────────────────────────────────────────────────────
+          // TRIBUNAL (Time-barred) — COMMENTED OUT. Uncomment to include later.
+          // Legacy equivalents: ModelTHS (schedule), ModelTHO (outcome), tribunalreview
+
+          // Time-barred Tribunal Hearing Schedule (ModelTHS)
+          fetchAndFormat(
+            'tribunalhearingschedule',
+            'IRN, THSHearingType, THSHearingStatus, THSDecisionDate',
+            (row: any) => {
+              const ht: string = row.THSHearingType || ''
+              const ht1 = ht === 'Form7EmployerRejectedOtherReason' ? 'Form7' : ht.substring(10, 16)
+              return {
+                IRN: row.IRN,
+                submissionType: `${ht1} - TimeBarred`,
+                status: row.THSHearingStatus || 'Pending',
+                reason: 'To Be Taken',
+                takenBy: 'Tribunal',
+                decisionDate: pretty(row.THSDecisionDate),
+                decisionDateRaw: row.THSDecisionDate,
+              }
+            }
+          ),
+
+          // Time-barred Tribunal Hearing Outcome (ModelTHO)
+          fetchAndFormat(
+            'tribunalhearingoutcome',
+            'IRN, THOStatus, THODetails, THODecisionDate',
+            (row: any) => ({
+              IRN: row.IRN,
+              submissionType: 'Tribunal Outcome - TimeBarred',
+              status: row.THOStatus || '',
+              reason: row.THODetails || '',
+              takenBy: 'Tribunal',
+              decisionDate: pretty(row.THODecisionDate),
+              decisionDateRaw: row.THODecisionDate,
+            })
+          ),
+
+          // Tribunal Review (general)
+          fetchAndFormat(
+            'tribunalreview',
+            'IRN, TRReviewStatus, TRReviewReason, TRReviewDate',
+            (row: any) => ({
+              IRN: row.IRN,
+              submissionType: 'Tribunal Review',
+              status: row.TRReviewStatus,
+              reason: row.TRReviewReason,
+              takenBy: 'Tribunal',
+              decisionDate: pretty(row.TRReviewDate),
+              decisionDateRaw: row.TRReviewDate,
+            })
+          ),
+          // ─────────────────────────────────────────────────────────────────────
+          */
+        ])
+
+        let allDecisions = decisionsParts.flat()
+
+        // Lookup DisplayIRN (optional, used elsewhere in UI)
+        if (allDecisions.length) {
+          const irns = Array.from(new Set(allDecisions.map(d => d.IRN).filter(Boolean))) as number[]
+          if (irns.length) {
+            const { data: irnRows } = await supabase
+              .from('form1112master')
+              .select('IRN, DisplayIRN')
+              .in('IRN', irns)
+            const map = new Map<number, string>()
+            irnRows?.forEach((r: any) => map.set(r.IRN, r.DisplayIRN))
+            allDecisions = allDecisions.map(d => ({ ...d, displayIRN: d.IRN ? map.get(d.IRN) || 'N/A' : 'N/A' }))
+          }
+        }
+
+        // Order by decision date (latest first)
+        const toEpoch = (s?: string) => {
+          const t = s ? Date.parse(s) : NaN
+          return isNaN(t) ? -Infinity : t
+        }
+      //  allDecisions.sort((a, b) => toEpoch(b.decisionDateRaw) - toEpoch(a.decisionDateRaw)) //latest first
+				allDecisions.sort((a, b) => toEpoch(a.decisionDateRaw) - toEpoch(b.decisionDateRaw)) //earliest first
+
+
+        // Payments
+        const paymentsOut: PaymentDetail[] = []
+        const { data: badm } = await supabase
+          .from('bankaccountdepositmaster')
+          .select('BankName, CheckNo, IssuedDate, ChequeCompensationAmount')
+          .eq('IRN', irn)
+        if (badm && badm.length) {
+          const b = badm[0]
+          paymentsOut.push({
+            bankName: b.BankName,
+            chequeNo: b.CheckNo,
+            issueDate: pretty(b.IssuedDate),
+            compensationAmount: b.ChequeCompensationAmount,
+            issuedBy: 'Insurance Provider',
+          })
+        }
+        const { data: occd } = await supabase
+          .from('owcclaimchequedetails')
+          .select('OCCDBankName, OCCDChequeNumber, OCCDIssueDate, OCCDChequeAmount')
+          .eq('IRN', irn)
+        if (occd && occd.length) {
+          const o = occd[0]
+          paymentsOut.push({
+            bankName: o.OCCDBankName,
+            chequeNo: o.OCCDChequeNumber,
+            issueDate: pretty(o.OCCDIssueDate),
+            compensationAmount: o.OCCDChequeAmount,
+            issuedBy: 'OWC Trust',
+          })
+        }
+
+        setDecisions(allDecisions)
+        setPayments(paymentsOut)
+      } catch (e: any) {
+        console.error(e)
+        setError(e?.message || 'Failed to load case data')
       } finally {
         setLoading(false)
       }
     }
 
-    loadData()
+    load()
   }, [irn])
-
-  const parseDate = (dateStr: string) => {
-    try {
-      return format(new Date(dateStr), 'dd/MM/yyyy')
-    } catch {
-      return dateStr
-    }
-  }
 
   if (loading) return <div className="p-4 text-center text-gray-600">Loading...</div>
   if (error) return <div className="p-4 text-center text-red-600">{error}</div>
 
   return (
     <div>
-      <h3 className="header">Case History</h3>
-      <table className="case-table">
-        <thead>
-          <tr>
-            <th>Display IRN</th>
-            <th>Submission Type</th>
-            <th>Status of Approval</th>
-            <th>Decision Reason</th>
-            <th>Decision Taken By</th>
-            <th>Decision Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {decisions.map((d, i) => (
-            <tr key={i}>
-              <td>{d.displayIRN || 'N/A'}</td>
-              <td>{d.submissionType}</td>
-              <td>{d.status}</td>
-              <td>{d.reason}</td>
-              <td>{d.takenBy}</td>
-              <td>{d.decisionDate ? parseDate(d.decisionDate) : '--'}</td>
+      <h3 className="text-lg font-semibold mb-2">Case History</h3>
+      <div className="overflow-x-auto">
+        <table className="min-w-full border">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="px-2 py-1 border">Submission Type</th>
+              <th className="px-2 py-1 border">Status of Approval</th>
+              <th className="px-2 py-1 border">Decision Reason</th>
+              <th className="px-2 py-1 border">Decision Taken By</th>
+              <th className="px-2 py-1 border">Decision Date</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {decisions.map((d, i) => (
+              <tr key={i} className="odd:bg-white even:bg-gray-50">
+                <td className="px-2 py-1 border">{d.submissionType}</td>
+                <td className="px-2 py-1 border">{d.status}</td>
+                <td className="px-2 py-1 border">{d.reason || '--'}</td>
+                <td className="px-2 py-1 border">{d.takenBy}</td>
+                <td className="px-2 py-1 border">{d.decisionDate || '--'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {payments.length > 0 && (
-        <>
-          <h3 className="header">Payment Details</h3>
-          <table className="payment-table">
-            <thead>
-              <tr>
-                <th>Bank Name</th>
-                <th>Cheque No.</th>
-                <th>Issue Date</th>
-                <th>Compensation Amount</th>
-                <th>Issued By</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((p, i) => (
-                <tr key={i}>
-                  <td>{p.bankName}</td>
-                  <td>{p.chequeNo}</td>
-                  <td>{p.issueDate}</td>
-                  <td>{p.compensationAmount}</td>
-                  <td>{p.issuedBy}</td>
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold mb-2">Payment Details</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="px-2 py-1 border">Bank Name</th>
+                  <th className="px-2 py-1 border">Cheque No.</th>
+                  <th className="px-2 py-1 border">Issue Date</th>
+                  <th className="px-2 py-1 border">Compensation Amount</th>
+                  <th className="px-2 py-1 border">Issued By</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+              </thead>
+              <tbody>
+                {payments.map((p, i) => (
+                  <tr key={i} className="odd:bg-white even:bg-gray-50">
+                    <td className="px-2 py-1 border">{p.bankName}</td>
+                    <td className="px-2 py-1 border">{p.chequeNo}</td>
+                    <td className="px-2 py-1 border">{p.issueDate}</td>
+                    <td className="px-2 py-1 border">{p.compensationAmount}</td>
+                    <td className="px-2 py-1 border">{p.issuedBy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
-export default ListClaimDecisions;
+export default ListClaimDecisions
