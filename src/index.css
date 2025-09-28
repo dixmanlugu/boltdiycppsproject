@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #8B2500;
+  --primary-dark: #701D00;
+  --primary-light: #A62D00;
+  --secondary: #F8F9FA;
+  --accent: #FFA500;
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --error: #DC2626;
+  --success: #10B981;
+  --warning: #F59E0B;
+}
+
+@layer base {
+  html {
+    @apply text-base scroll-smooth;
+  }
+  
+  body {
+    @apply font-sans bg-gray-100 text-gray-800 min-h-screen;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold text-gray-900;
+  }
+  
+  h1 {
+    @apply text-3xl md:text-4xl;
+  }
+  
+  h2 {
+    @apply text-2xl md:text-3xl;
+  }
+  
+  h3 {
+    @apply text-xl md:text-2xl;
+  }
+  
+  p {
+    @apply leading-relaxed;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded font-medium transition duration-200 focus:outline-none focus:ring-2 focus:ring-opacity-50;
+  }
+  
+  .btn-primary {
+    @apply text-white;
+    background-color: var(--primary);
+  }
+  .btn-primary:hover { background-color: var(--primary-dark); }
+  .btn-primary:focus { --tw-ring-color: var(--primary); }
+
+  .btn-secondary {
+    @apply bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 focus:ring-gray-300;
+  }
+  
+  .btn-success {
+    @apply bg-[var(--success)] hover:bg-green-700 text-white focus:ring-green-500;
+  }
+  
+  .btn-warning {
+    @apply bg-[var(--warning)] hover:bg-amber-600 text-white focus:ring-amber-500;
+  }
+  
+  .btn-error {
+    @apply bg-[var(--error)] hover:bg-red-700 text-white focus:ring-red-500;
+  }
+  
+  .input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:border-[var(--primary)];
+    --tw-ring-color: var(--primary);
+  }
+  
+  .card {
+    @apply bg-white rounded-lg shadow p-6 transition-all;
+  }
+
+  .step-item {
+    @apply flex flex-col items-center justify-center;
+  }
+  
+  .step-circle {
+    @apply flex items-center justify-center w-10 h-10 text-sm font-bold rounded-full text-white mb-2;
+    background-color: var(--primary);
+  }
+}
+
+/* ---------- SYSTEM-WIDE TABLE HEADER STYLE ---------- */
+@layer base {
+  /* Apply to all tables by default; opt out with .no-standard-table */
+  table:not(.no-standard-table) thead {
+    @apply text-white;
+    background-color: var(--primary) !important;
+    color: #fff !important;
+  }
+
+  table:not(.no-standard-table) thead th,
+  table:not(.no-standard-table) thead td {
+    @apply font-semibold uppercase tracking-wider;
+    border-left: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  /* Dark mode variant (if you toggle .dark on <html>) */
+  .dark table:not(.no-standard-table) thead {
+    background-color: var(--primary-dark) !important;
+  }
+
+  /* Print-friendly: ensure header contrast on paper */
+  @media print {
+    table thead {
+      background: #000 !important;
+      color: #fff !important;
+    }
+  }
+}
