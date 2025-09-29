@@ -336,10 +336,10 @@ const ViewForm18: React.FC<ViewForm18Props> = ({ irn, onClose }) => {
             onClick={handleDownloadPdf}
             className="btn btn-primary flex items-center gap-2"
             disabled={!irn}
-            title="Download to PDF"
+            title="Print Form18"
           >
             <Download className="h-4 w-4" />
-            Download to PDF
+            Print Form18
           </button>
         </div>
 
