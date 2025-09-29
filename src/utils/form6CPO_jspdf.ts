@@ -34,6 +34,11 @@ const toDataURL = async (url: string) => {
   });
 };
 
+const safePart = (s: any) =>
+  String(s ?? '')
+    .trim()
+    .replace(/[^\w.-]+/g, '_'); // keep letters/numbers/_ . -
+
 // ---------- query exactly like Form6.php ----------
 async function loadForm6Data(irn: string | number) {
   // Form1112Master
@@ -434,8 +439,10 @@ async function renderPDF(data: Awaited<ReturnType<typeof loadForm6Data>>) {
     doc.setFont("times", "normal"); doc.text("Registrar.", 170, y + 10, { align: "right" });
   }
 
-  doc.save("Form6-cpo.pdf");
+   const crn = data?.DisplayIRN ? safePart(data.DisplayIRN) : 'IRN';
+  doc.save(`Form6-${crn}.pdf`);
 }
+
 
 // ---------- public API ----------
 export async function generateForm6CPO_jsPDF_byIRN(irn: string | number) {

@@ -1,3 +1,4 @@
+// src/components/forms/Form139NotificationEmployerResponsePendingDeath.tsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -7,7 +8,7 @@ import ListClaimDecisions from './ListClaimDecisions';
 import CompensationBreakupDetailsView from './CompensationBreakupDetailsView';
 import { X, Download, AlertCircle } from 'lucide-react';
 
-// NEW: use the jsPDF generator-by-IRN
+// jsPDF generator by IRN
 import generateForm6CPO_jsPDF_byIRN from '../../utils/form6CPO_jspdf';
 
 interface Form139Props {
@@ -22,6 +23,9 @@ const Form139NotificationEmployerResponsePendingDeath: React.FC<Form139Props> = 
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<any>({});
   const [validIRN, setValidIRN] = useState<number | null>(null);
+
+  // NEW: printing state for option 2
+  const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
     const irnNumber = parseInt(irn, 10);
@@ -79,6 +83,20 @@ const Form139NotificationEmployerResponsePendingDeath: React.FC<Form139Props> = 
 
     fetchFormData();
   }, [validIRN]);
+
+  // OPTION 2: wrapper for PDF generation
+  const handlePrintForm6 = async () => {
+    if (!validIRN || printing) return;
+    setPrinting(true);
+    try {
+      await generateForm6CPO_jsPDF_byIRN(validIRN, formData.DisplayIRN);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to generate Form 6.');
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   if (error) {
     return (
@@ -140,31 +158,27 @@ const Form139NotificationEmployerResponsePendingDeath: React.FC<Form139Props> = 
             <ViewForm6 irn={validIRN?.toString() || ''} />
           </div>
 
-          {/* Small icon button (optional) */}
+          {/* Top-right small icon button */}
           <div className="mt-6 flex justify-end">
             <button
-              onClick={() => validIRN && generateForm6CPO_jsPDF_byIRN(validIRN)}
-              className="text-gray-500 hover:text-gray-700 p-1 mr-4"
-              title="Download to PDF"
+              onClick={handlePrintForm6}
+              className="text-gray-500 hover:text-gray-700 p-1 mr-4 disabled:opacity-60"
+              title={printing ? 'Generating…' : 'Download to PDF'}
+              disabled={!validIRN || printing}
             >
               <Download className="h-5 w-5" />
             </button>
           </div>
 
-          {/* Section 2: Form 124 (EMBEDDED, not overlay) */}
+          {/* Section 2: Form 124 */}
           <div className="border rounded-lg p-4" id="form124-section">
             <h3 className="text-lg font-semibold mb-4 text-primary">Form 124 - Death Claim Details</h3>
-
-            {/* Scoped CSS overrides to force embedded layout if Form124View uses modal classes */}
             <style>{`
-              /* Anything inside this wrapper that uses fixed modal-style layout becomes embedded */
               #form124-section .embedded-form124 .fixed { position: static !important; }
               #form124-section .embedded-form124 .inset-0 { inset: auto !important; }
               #form124-section .embedded-form124 .z-50 { z-index: auto !important; }
-              /* neutralize typical Tailwind overlay backgrounds if present */
               #form124-section .embedded-form124 [class*="bg-black/"] { background: transparent !important; }
             `}</style>
-
             <div className="embedded-form124 relative">
               <Form124View irn={validIRN?.toString() || ''} onClose={onClose} />
             </div>
@@ -194,12 +208,13 @@ const Form139NotificationEmployerResponsePendingDeath: React.FC<Form139Props> = 
             )}
           </div>
 
-          {/* Bottom Download Button (updated as requested) */}
+          {/* Bottom full-width download button */}
           <button
-            onClick={() => validIRN && generateForm6CPO_jsPDF_byIRN(validIRN)}
-            className="btn bg-primary text-white hover:bg-primary-dark mt-4"
+            onClick={handlePrintForm6}
+            className="btn bg-primary text-white hover:bg-primary-dark mt-4 disabled:opacity-60"
+            disabled={!validIRN || printing}
           >
-            Download PDF
+            {printing ? 'Generating…' : 'Print Form6'}
           </button>
         </div>
       </div>

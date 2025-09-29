@@ -42,8 +42,11 @@ const ListPendingRegisteredClaimsCPOReview: React.FC<ListPendingRegisteredClaims
   const [showCPOClaimReviewForm, setShowCPOClaimReviewForm] = useState<boolean>(false);
   const [showCPODeathClaimReviewForm, setShowCPODeathClaimReviewForm] = useState<boolean>(false);
   const [selectedIRN, setSelectedIRN] = useState<string | null>(null);
+	const [pendingIncidentType, setPendingIncidentType] = useState<string | null>(null);
   const [userRegion, setUserRegion] = useState<string | null>(null);
   const [userStaffID, setUserStaffID] = useState<string | null>(null);
+	const [openReadOnly, setOpenReadOnly] = useState<boolean>(false);
+  const [showLockPrompt, setShowLockPrompt] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchUserRegion = async () => {
@@ -219,35 +222,35 @@ const ListPendingRegisteredClaimsCPOReview: React.FC<ListPendingRegisteredClaims
     setCurrentPage(page);
   };
 
-  const handleView = (irn: string, incidentType: string, lockedByCPOID: string | null, lockedByName: string | null) => {
-    // Check if the record is locked by another user
-    if (lockedByCPOID && lockedByCPOID !== '0' && lockedByCPOID !== userStaffID) {
-      // Record is locked by another user, show an alert
-      alert(`This record is currently being processed by ${lockedByName || 'another user'}.`);
-      return;
-    }
-    
+const handleView = (irn: string, incidentType: string, lockedByCPOID: string | null, lockedByName: string | null) => {
+  // If locked by another user
+  if (lockedByCPOID && lockedByCPOID !== '0' && lockedByCPOID !== userStaffID) {
+    alert(`This record is currently being processed by ${lockedByName || 'another user'}.`);
+    return;
+  }
+
+    // If unlocked (or locked by me), use our custom modal to ask Lock vs Read-only
+    const isUnlocked = !lockedByCPOID || lockedByCPOID === '0' || lockedByCPOID === userStaffID;
     setSelectedIRN(irn);
-    console.log(`View clicked for IRN: ${irn}, Incident Type: ${incidentType}`);
-    
-    // If using the callback, call it and close the modal
-    if (onSelectWorker) {
-      onSelectWorker(irn, incidentType);
-      onClose();
+    setPendingIncidentType(incidentType);
+    if (isUnlocked) {
+      setShowLockPrompt(true);
     } else {
-      if (incidentType.trim() === 'Death') {
-        // For Death claims, show the Death Claim Review Form
-        setShowCPODeathClaimReviewForm(true);
-        setShowCPOClaimReviewForm(false);
-        console.log(`Showing Death Claim Review Form (111cpoclaimreviewform.tsx) for IRN: ${irn}`);
-      } else {
-        // For Injury claims, show the Injury Claim Review Form
-        setShowCPOClaimReviewForm(true);
-        setShowCPODeathClaimReviewForm(false);
-        console.log(`Showing Injury Claim Review Form (110cpoclaimreviewform.tsx) for IRN: ${irn}`);
-      }
+      // fallback (shouldn’t happen because we return above if locked by someone else)
+      setOpenReadOnly(false);
+      openReviewForm(incidentType);
     }
-  };
+   };
+// Helper to open the appropriate review form using current selectedIRN + openReadOnly
+const openReviewForm = (incidentType: string) => {
+  if (incidentType.trim() === 'Death') {
+    setShowCPODeathClaimReviewForm(true);
+    setShowCPOClaimReviewForm(false);
+  } else {
+    setShowCPOClaimReviewForm(true);
+    setShowCPODeathClaimReviewForm(false);
+  }
+};
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -279,7 +282,7 @@ const ListPendingRegisteredClaimsCPOReview: React.FC<ListPendingRegisteredClaims
                   className="input"
                   placeholder="Enter Display IRN"
                 />
-              </div>
+             </div>
               
               <div>
                 <label htmlFor="searchFirstName" className="block text-sm font-medium text-gray-700 mb-1">
@@ -479,13 +482,55 @@ const ListPendingRegisteredClaimsCPOReview: React.FC<ListPendingRegisteredClaims
         </div>
       </div>
 
+ {/* Lock vs Read-Only Modal */}
+      {showLockPrompt && selectedIRN && pendingIncidentType && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowLockPrompt(false)} />
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Open Claim</h3>
+            <p className="text-sm text-gray-700 mb-4">
+              Do you want to <span className="font-semibold">lock</span> this record for processing? <br />
+              Choosing <span className="font-semibold">Yes</span> will open it in editable mode and lock it to you. <br />
+              Choosing <span className="font-semibold">No</span> will open it in read-only mode without locking.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  // No => read-only
+                  setOpenReadOnly(true);
+                  setShowLockPrompt(false);
+                  openReviewForm(pendingIncidentType);
+                }}
+              >
+                No (Read-Only)
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  // Yes => editable (lock will be handled by the child form)
+                  setOpenReadOnly(false);
+                  setShowLockPrompt(false);
+                  openReviewForm(pendingIncidentType);
+                }}
+              >
+                Yes (Lock & Edit)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+			
       {/* CPO Claim Review Form Modal */}
       {showCPOClaimReviewForm && selectedIRN && (
         <CPOClaimReviewForm 
           irn={selectedIRN} 
+					readOnly={openReadOnly}
           onClose={() => {
             setShowCPOClaimReviewForm(false);
             setSelectedIRN(null);
+						setOpenReadOnly(false);
+						setPendingIncidentType(null);
             fetchClaimsList(); // Refresh the list after closing
           }}
         />
@@ -495,9 +540,12 @@ const ListPendingRegisteredClaimsCPOReview: React.FC<ListPendingRegisteredClaims
       {showCPODeathClaimReviewForm && selectedIRN && (
         <CPODeathClaimReviewForm 
           irn={selectedIRN} 
+						readOnly={openReadOnly}
           onClose={() => {
             setShowCPODeathClaimReviewForm(false);
             setSelectedIRN(null);
+					setOpenReadOnly(false);
+setPendingIncidentType(null);
             fetchClaimsList(); // Refresh the list after closing
           }}
         />

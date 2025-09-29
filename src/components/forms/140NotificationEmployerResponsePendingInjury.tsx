@@ -1,16 +1,15 @@
 // src/components/forms/140NotificationEmployerResponsePendingInjury.tsx
 import React, { useState, useEffect } from 'react';
-import { X, Download, Printer, AlertCircle } from 'lucide-react';
-import html2pdf from 'html2pdf.js'; // Corrected import statement
-import generatePDF from '../../utils/pdfGenerator'; // Adjusted import statement
+import { X, Download, AlertCircle } from 'lucide-react';
+import html2pdf from 'html2pdf.js';
+import generatePDF from '../../utils/pdfGenerator';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 import Form113View from './Form113View';
 import ListClaimDecisions from './ListClaimDecisions';
 import CompensationBreakupDetailsView from './CompensationBreakupDetailsView';
 import ViewForm6 from './ViewForm6';
-//import generateForm6CPO, { mapToForm6Data } from "../../utils/form6CPO";
-import generateForm6CPO_jsPDF_byIRN from "../../utils/form6CPO_jspdf";
+import generateForm6CPO_jsPDF_byIRN from '../../utils/form6CPO_jspdf';
 
 interface Form140Props {
   irn: string;
@@ -25,18 +24,17 @@ const Form140NotificationEmployerResponsePendingInjury: React.FC<Form140Props> =
   const [formData, setFormData] = useState<any>({});
   const [validIRN, setValidIRN] = useState<number | null>(null);
 
-  useEffect(() => {
-    const validateIRN = () => {
-      const irnNumber = parseInt(irn, 10);
-      if (isNaN(irnNumber)) {
-        setError('Invalid IRN: must be a number');
-        setLoading(false);
-        return;
-      }
-      setValidIRN(irnNumber);
-    };
+  // NEW: printing state for option 2
+  const [printing, setPrinting] = useState(false);
 
-    validateIRN();
+  useEffect(() => {
+    const irnNumber = parseInt(irn, 10);
+    if (isNaN(irnNumber)) {
+      setError('Invalid IRN: must be a number');
+      setLoading(false);
+      return;
+    }
+    setValidIRN(irnNumber);
   }, [irn]);
 
   useEffect(() => {
@@ -47,30 +45,23 @@ const Form140NotificationEmployerResponsePendingInjury: React.FC<Form140Props> =
         setLoading(true);
         setError(null);
 
-        // Fetch form1112master data to get worker details
         const { data: form1112Data, error: form1112Error } = await supabase
           .from('form1112master')
           .select('*')
           .eq('IRN', validIRN)
           .eq('IncidentType', 'Injury')
-          .single();
+          .single(); // keep as-is; change to maybeSingle if you suspect 0/duplicates
 
-        if (form1112Error) {
-          throw form1112Error;
-        }
+        if (form1112Error) throw form1112Error;
 
-        // Fetch worker personal details
         const { data: workerData, error: workerError } = await supabase
           .from('workerpersonaldetails')
           .select('*')
           .eq('WorkerID', form1112Data.WorkerID)
           .single();
 
-        if (workerError) {
-          throw workerError;
-        }
+        if (workerError) throw workerError;
 
-        // Fetch form6master data for death notification
         const { data: form6Data, error: form6Error } = await supabase
           .from('form6master')
           .select('*')
@@ -78,9 +69,7 @@ const Form140NotificationEmployerResponsePendingInjury: React.FC<Form140Props> =
           .eq('IncidentType', 'Injury')
           .single();
 
-        if (form6Error) {
-          throw form6Error;
-        }
+        if (form6Error) throw form6Error;
 
         setFormData({
           ...form1112Data,
@@ -97,6 +86,20 @@ const Form140NotificationEmployerResponsePendingInjury: React.FC<Form140Props> =
 
     fetchFormData();
   }, [validIRN]);
+
+  // OPTION 2: single handler with loading/disabled state
+  const handlePrintForm6 = async () => {
+    if (!validIRN || printing) return;
+    setPrinting(true);
+    try {
+      await generateForm6CPO_jsPDF_byIRN(validIRN, formData.DisplayIRN);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to generate Form 6.');
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   if (error) {
     return (
@@ -158,17 +161,18 @@ const Form140NotificationEmployerResponsePendingInjury: React.FC<Form140Props> =
             <ViewForm6 irn={validIRN?.toString() || ''} />
           </div>
 
-{/* Buttons */}
-      <div className="mt-6 flex justify-end">
-       <button
-  onClick={() => validIRN && generateForm6CPO_jsPDF_byIRN(validIRN)}
-  className="text-gray-500 hover:text-gray-700 p-1 mr-4"
-  title="Download to PDF"
->
-  <Download className="h-5 w-5" />
-</button>
-      </div>
-					
+          {/* Top-right icon button (uses same handler) */}
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={handlePrintForm6}
+              className="text-gray-500 hover:text-gray-700 p-1 mr-4 disabled:opacity-60"
+              title={printing ? 'Generating…' : 'Download to PDF'}
+              disabled={!validIRN || printing}
+            >
+              <Download className="h-5 w-5" />
+            </button>
+          </div>
+
           {/* Section 2: Form 113 - Injury Claim Details */}
           <div className="border rounded-lg p-4" id="injuryclaims-section">
             <h3 className="text-lg font-semibold mb-4 text-primary">Form 113 - Injury Claim Details</h3>
@@ -189,19 +193,24 @@ const Form140NotificationEmployerResponsePendingInjury: React.FC<Form140Props> =
           <div className="border rounded-lg p-4">
             <h3 className="text-lg font-semibold mb-4 text-primary">Compensation Breakup</h3>
             {validIRN ? (
-              <CompensationBreakupDetailsView IRN={validIRN.toString()} DisplayIRN={formData.DisplayIRN} IncidentType="Injury" />
+              <CompensationBreakupDetailsView
+                IRN={validIRN.toString()}
+                DisplayIRN={formData.DisplayIRN}
+                IncidentType="Injury"
+              />
             ) : (
               <p className="text-textSecondary">Compensation data cannot be loaded without a valid IRN.</p>
             )}
           </div>
 
-          {/* Download Button */}
-         <button
-  onClick={() => validIRN && generateForm6CPO_jsPDF_byIRN(validIRN)}
-  className="btn bg-primary text-white hover:bg-primary-dark mt-4"
->
-  Download PDF
-</button>
+          {/* Bottom full-width download button (same handler & state) */}
+          <button
+            onClick={handlePrintForm6}
+            className="btn bg-primary text-white hover:bg-primary-dark mt-4 disabled:opacity-60"
+            disabled={!validIRN || printing}
+          >
+            {printing ? 'Generating…' : 'Print Form6'}
+          </button>
         </div>
       </div>
     </div>

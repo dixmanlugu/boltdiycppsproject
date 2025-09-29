@@ -79,19 +79,12 @@ const ClaimsManagerDashboard: React.FC = () => {
     datasets: []
   });
 
-  const menuItems = {
-    'Compensation Calculation Review': {
-      items: ['Pending', 'Approved', 'Rejected']
-    },
-    'Claims': {
-      items: ['Calculation Pending', 'Form6 Response Pending'],
-      submenus: {
-        'Form18': {
-          items: ['Employer Accepted', 'Worker']
-        }
-      }
-    }
-  };
+const menuItems: Record<string, { items: string[] }> = {
+  'Compensation Calculation Review': { items: ['Pending', 'Approved', 'Rejected'] },
+  Claims: { items: ['Calculation Pending', 'Form6 Response Pending'] },
+  Form18: { items: ['Employer Accepted', 'Worker Response'] },
+};
+
 
   useEffect(() => {
     const fetchUserRegion = async () => {
@@ -383,29 +376,26 @@ const ClaimsManagerDashboard: React.FC = () => {
     setActiveMenu(activeMenu === menu ? null : menu);
   };
 
-  const handleMenuItemClick = (menu: string, item: string) => {
-    console.log(`Selected ${item} from ${menu}`);
-    
-    if (menu === 'Compensation Calculation Review' && item === 'Pending') {
-      setShowPendingCPMReviewList(true);
-    } else if (menu === 'Compensation Calculation Review' && item === 'Approved') {
-      setShowApprovedCPMReviewList(true);
-    } else if (menu === 'Compensation Calculation Review' && item === 'Rejected') {
-      setShowRejectedCPMReviewList(true);
-    } else if (menu === 'Claims' && item === 'Calculation Pending') {
-      setShowPendingClaimsList(true);
-    } else if (menu === 'Claims' && item === 'Form6 Response Pending') {
-      setShowForm6PendingList(true);
-    } else if (item === 'Form18') {
-      // This is handled in the submenu
-    } else if (item === 'Employer Accepted') {
-      setShowForm18EmployerAcceptedList(true);
-    } else if (item === 'Worker') {
-      setShowForm18WorkerResponseList(true);
-    }
-    
-    setActiveMenu(null);
-  };
+const handleMenuItemClick = (menu: string, item: string) => {
+  if (menu === 'Compensation Calculation Review' && item === 'Pending') {
+    setShowPendingCPMReviewList(true);
+  } else if (menu === 'Compensation Calculation Review' && item === 'Approved') {
+    setShowApprovedCPMReviewList(true);
+  } else if (menu === 'Compensation Calculation Review' && item === 'Rejected') {
+    setShowRejectedCPMReviewList(true);
+  } else if (menu === 'Claims' && item === 'Calculation Pending') {
+    setShowPendingClaimsList(true);
+  } else if (menu === 'Claims' && item === 'Form6 Response Pending') {
+    setShowForm6PendingList(true);
+  } else if (menu === 'Form18' && item === 'Employer Accepted') {
+    setShowForm18EmployerAcceptedList(true);
+  } else if (menu === 'Form18' && item === 'Worker Response') {
+    setShowForm18WorkerResponseList(true);
+  }
+
+  setActiveMenu(null);
+};
+
 
   const handleWorkerSelect = (workerId: string) => {
     setSelectedWorkerId(workerId);
@@ -422,76 +412,38 @@ const ClaimsManagerDashboard: React.FC = () => {
       </div>
 
       {/* Navigation Menu */}
-      <div className="mb-8 bg-white rounded-lg shadow">
-        <div className="p-4 grid grid-cols-1 gap-4">
-          {Object.entries(menuItems).map(([menu, { items, submenus = {} }]) => (
-            <div key={menu} className="relative">
+{/* Navigation Menu (mirrors Provincial) */}
+<div className="mb-8 bg-white rounded-lg shadow">
+  <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {Object.entries(menuItems).map(([menu, { items }]) => (
+      <div key={menu} className="relative">
+        <button
+          onClick={() => toggleMenu(menu)}
+          className="w-full flex items-center justify-between p-3 text-left bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
+        >
+          <span className="font-medium">{menu}</span>
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${activeMenu === menu ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {activeMenu === menu && (
+          <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg">
+            {(items.length ? items : ['View All']).map((item) => (
               <button
-                onClick={() => toggleMenu(menu)}
-                className="w-full flex items-center justify-between p-3 text-left bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
+                key={item}
+                onClick={() => handleMenuItemClick(menu, item === 'View All' ? '' : item)}
+                className="w-full px-4 py-2 text-left hover:bg-gray-50 first:rounded-t-md last:rounded-b-md"
               >
-                <span className="font-medium">{menu}</span>
-                <ChevronDown
-                  className={`h-4 w-4 transition-transform ${
-                    activeMenu === menu ? 'transform rotate-180' : ''
-                  }`}
-                />
+                {item}
               </button>
-              {activeMenu === menu && (
-                <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg">
-                  {items.map((item) => (
-                    <div key={item}>
-                      <button
-                        onClick={() => handleMenuItemClick(menu, item)}
-                        className="w-full px-4 py-2 text-left hover:bg-gray-50"
-                      >
-                        {item}
-                      </button>
-                      {submenus[item] && (
-                        <div className="pl-8 bg-gray-50">
-                          {submenus[item].items.map((subitem) => (
-                            <button
-                              key={subitem}
-                              onClick={() => handleMenuItemClick(item, subitem)}
-                              className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
-                            >
-                              {subitem}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {menu === 'Claims' && (
-                    <div>
-                      <button
-                        onClick={() => handleMenuItemClick(menu, 'Form18')}
-                        className="w-full px-4 py-2 text-left hover:bg-gray-50"
-                      >
-                        Form18
-                      </button>
-                      <div className="pl-8 bg-gray-50">
-                        <button
-                          onClick={() => handleMenuItemClick('Form18', 'Employer Accepted')}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
-                        >
-                          Employer Accepted
-                        </button>
-                        <button
-                          onClick={() => handleMenuItemClick('Form18', 'Worker')}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
-                        >
-                          Worker
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
+    ))}
+  </div>
+</div>
+
 
       {/* Compensation Calculation Review Stats */}
       <h2 className="text-xl font-semibold mb-4">Compensation Calculation Review</h2>

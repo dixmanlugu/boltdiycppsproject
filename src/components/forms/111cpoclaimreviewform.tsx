@@ -1,23 +1,23 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, AlertCircle, ChevronDown, ChevronUp, Search, Filter, Calendar, FileText } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
 import Form124View from './Form124View';
 import CompensationCalculation from './CompensationCalculation';
 
-
 interface CPOClaimReviewFormProps {
   irn: string;
+  readOnly?: boolean; // NEW
   onClose: () => void;
 }
 
 // This component is specifically for Death claims only
-const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClose }) => {
+const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, readOnly = false, onClose }) => {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [claimData, setClaimData] = useState<any>(null);
-  const [workerData, setWorkerData] = useState<any>(null); 
+  const [workerData, setWorkerData] = useState<any>(null);
   const [userStaffID, setUserStaffID] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
     details: true,
@@ -32,14 +32,14 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
   const [filteredDecisions, setFilteredDecisions] = useState<any[]>([]);
   const [decisionLoading, setDecisionLoading] = useState(true);
   const [decisionError, setDecisionError] = useState<string | null>(null);
-  
+
   // Filter states for claim decisions
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedReviewType, setSelectedReviewType] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  
+
   // Filter options
   const [statuses, setStatuses] = useState<string[]>([]);
   const [submissionTypes, setSubmissionTypes] = useState<string[]>([]);
@@ -53,49 +53,31 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
   useEffect(() => {
     if (userStaffID) {
       fetchClaimData();
-      checkLockStatus();
-      lockRecord();
+checkLockStatus();
+      if (!readOnly) {
+        
+        lockRecord();
+   
+      }
     }
 
     return () => {
-      if (userStaffID) {
- //       unlockRecord();
-      }
+      // if (!readOnly && userStaffID) { unlockRecord(); }
     };
-  }, [irn, userStaffID]);
-
-  useEffect(() => {
-    if (profile?.id) {
-      fetchUserStaffID();
-    }
-  }, [profile?.id]);
-
-  useEffect(() => {
-    if (userStaffID) {
-      fetchClaimData();
-      checkLockStatus();
-      lockRecord();
-    }
-
-    return () => {
-      if (userStaffID) {
-   //     unlockRecord();
-      }
-    };
-  }, [irn, userStaffID]);
+  }, [irn, userStaffID, readOnly]);
 
   const fetchUserStaffID = async () => {
     try {
       if (!profile?.id) return;
-      
+
       const { data: staffData, error: staffError } = await supabase
         .from('owcstaffmaster')
         .select('OSMStaffID')
         .eq('cppsid', profile.id)
         .maybeSingle();
-        
+
       if (staffError) throw staffError;
-      
+
       if (staffData && staffData.OSMStaffID) {
         setUserStaffID(staffData.OSMStaffID.toString());
       }
@@ -106,16 +88,16 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
   useEffect(() => {
     fetchClaimData();
-    checkLockStatus();
-
-    // Set up lock on component mount
-    lockRecord();
-
-    // Clean up lock on component unmount
+		 checkLockStatus();
+    if (!readOnly) {
+     
+      // lock on mount only when not read-only
+      lockRecord();
+    } 
     return () => {
-      unlockRecord();
+      // if (!readOnly) unlockRecord();
     };
-  }, [irn]); 
+  }, [irn, readOnly]);
 
   useEffect(() => {
     if (expandedSections.history) {
@@ -130,10 +112,10 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
   const fetchClaimData = async () => {
     try {
       setLoading(true);
-      
+
       // Fetch claim data from form1112master
       const { data: claimData, error: claimError } = await supabase
-        .from('form1112master') 
+        .from('form1112master')
         .select(`
           IRN,
           DisplayIRN,
@@ -177,7 +159,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
       setDecisionLoading(true);
       let allDecisions: any[] = [];
 
-      // 1. Fetch from timebarredclaimsregistrarreview
+      // 1. timebarredclaimsregistrarreview
       const { data: timeBarredData, error: timeBarredError } = await supabase
         .from('timebarredclaimsregistrarreview')
         .select('IRN, TBCRRFormType, TBCRRReviewStatus, TBCRRDecisionReason, TBCRRDecisionDate')
@@ -188,7 +170,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       const formattedTimeBarredData = timeBarredData?.map(item => ({
         IRN: item.IRN,
-        DisplayIRN: '', // Will be populated later
+        DisplayIRN: '',
         SubmissionType: `${item.TBCRRFormType} - TimeBarred`,
         Status: item.TBCRRReviewStatus || '',
         DecisionReason: item.TBCRRDecisionReason || '',
@@ -196,11 +178,10 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         DecisionDate: item.TBCRRDecisionDate || ''
       })) || [];
 
-      // 2. Fetch from prescreeningreview
+      // 2. prescreening_view
       const { data: prescreeningData, error: prescreeningError } = await supabase
         .from('prescreening_view')
         .select('*')
-        .eq('IRN', irn)
         .eq('IRN', irn)
         .order('PRSubmissionDate', { ascending: false });
 
@@ -208,15 +189,15 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       const formattedPrescreeningData = prescreeningData?.map(item => ({
         IRN: item.IRN,
-        DisplayIRN: '', // Will be populated later
-        SubmissionType: item.PRFormType || 'Form Review', 
-        Status: item.PRStatus || 'Pending', 
-        DecisionReason: item.PRDecisionReason || 'Under Review', 
+        DisplayIRN: '',
+        SubmissionType: item.PRFormType || 'Form Review',
+        Status: item.PRStatus || 'Pending',
+        DecisionReason: item.PRDecisionReason || 'Under Review',
         DecisionTakenBy: 'Deputy Registrar',
         DecisionDate: item.PRSubmissionDate || ''
       })) || [];
 
-      // 3. Fetch from registrarreview
+      // 3. registrarreview
       const { data: registrarData, error: registrarError } = await supabase
         .from('registrarreview')
         .select('IRN, IncidentType, RRStatus, RRDecisionReason, RRDecisionDate')
@@ -227,7 +208,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       const formattedRegistrarData = registrarData?.map(item => ({
         IRN: item.IRN,
-        DisplayIRN: '', // Will be populated later
+        DisplayIRN: '',
         SubmissionType: item.IncidentType || '',
         Status: item.RRStatus || '',
         DecisionReason: item.RRDecisionReason || '',
@@ -235,7 +216,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         DecisionDate: item.RRDecisionDate || ''
       })) || [];
 
-      // 4. Fetch from approvedclaimscporeview
+      // 4. approvedclaimscporeview
       const { data: cpoData, error: cpoError } = await supabase
         .from('approvedclaimscporeview')
         .select('IRN, IncidentType, CPORStatus, LockedByCPOID, CPORSubmissionDate')
@@ -244,7 +225,6 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       if (cpoError) throw cpoError;
 
-      // Process CPO data with locked status
       const formattedCPOData = await Promise.all(cpoData?.map(async item => {
         let status = '';
         let decisionReason = '--';
@@ -255,32 +235,26 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
             status = 'Review Pending';
           } else {
             status = 'Review in Progress';
-            
-            // Get locked by user name
             if (item.LockedByCPOID) {
-              const { data: userData, error: userError } = await supabase
+              const { data: userData } = await supabase
                 .from('owcstaffmaster')
                 .select('OSMFirstName, OSMLastName')
                 .eq('OSMStaffID', item.LockedByCPOID)
                 .maybeSingle();
-                
-              if (!userError && userData) {
+              if (userData) {
                 decisionTakenBy = `${userData.OSMFirstName} ${userData.OSMLastName}`;
               }
             }
           }
         } else {
           status = 'Compensation Calculated';
-          
-          // Get locked by user name
           if (item.LockedByCPOID) {
-            const { data: userData, error: userError } = await supabase
+            const { data: userData } = await supabase
               .from('owcstaffmaster')
               .select('OSMFirstName, OSMLastName')
               .eq('OSMStaffID', item.LockedByCPOID)
               .maybeSingle();
-              
-            if (!userError && userData) {
+            if (userData) {
               decisionTakenBy = `${userData.OSMFirstName} ${userData.OSMLastName}`;
             }
           }
@@ -288,7 +262,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
         return {
           IRN: item.IRN,
-          DisplayIRN: '', // Will be populated later
+          DisplayIRN: '',
           SubmissionType: item.IncidentType || '',
           Status: status,
           DecisionReason: decisionReason,
@@ -297,7 +271,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         };
       }) || []);
 
-      // 5. Fetch from compensationcalculationreview
+      // 5. compensationcalculationreview
       const { data: ccrData, error: ccrError } = await supabase
         .from('compensationcalculationreview')
         .select('IRN, IncidentType, CCRReviewStatus, CCRDecisionReason, CCRSubmissionDate')
@@ -308,7 +282,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       const formattedCCRData = ccrData?.map(item => ({
         IRN: item.IRN,
-        DisplayIRN: '', // Will be populated later
+        DisplayIRN: '',
         SubmissionType: item.IncidentType || '',
         Status: item.CCRReviewStatus || '',
         DecisionReason: item.CCRDecisionReason || '',
@@ -316,7 +290,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         DecisionDate: item.CCRSubmissionDate || ''
       })) || [];
 
-      // 6. Fetch from compensationcalculationcommissionerreview
+      // 6. compensationcalculationcommissionersreview
       const { data: cccData, error: cccError } = await supabase
         .from('compensationcalculationcommissionersreview')
         .select('IRN, IncidentType, CCCRReviewStatus, CCCRDecisionReason, CCCRSubmissionDate')
@@ -327,17 +301,14 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       const formattedCCCData = cccData?.map(item => {
         let decisionTakenBy = 'Commissioner';
-        
-        // Check if status contains "Chief" or "Comm"
         if (item.CCCRReviewStatus && item.CCCRReviewStatus.includes('Chief')) {
-          decisionTakenBy = 'ChiefCommissioner';
+          decisionTakenBy = 'Chief Commissioner';
         } else if (item.CCCRReviewStatus && item.CCCRReviewStatus.includes('Comm')) {
           decisionTakenBy = 'Commissioner';
         }
-        
         return {
           IRN: item.IRN,
-          DisplayIRN: '', // Will be populated later
+          DisplayIRN: '',
           SubmissionType: item.IncidentType || '',
           Status: item.CCCRReviewStatus || '',
           DecisionReason: item.CCCRDecisionReason || '',
@@ -346,7 +317,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         };
       }) || [];
 
-      // 7. Fetch from compensationcalculationcpmreview
+      // 7. compensationcalculationcpmreview
       const { data: cpmData, error: cpmError } = await supabase
         .from('compensationcalculationcpmreview')
         .select('IRN, IncidentType, CPMRStatus, CPMRDecisionReason, CPMRSubmissionDate')
@@ -355,34 +326,30 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       if (cpmError) throw cpmError;
 
-      // Process CPM data with region-based CPM name
       const formattedCPMData = await Promise.all(cpmData?.map(async item => {
-        // Get incident region from form1112master
-        const { data: form1112Data, error: form1112Error } = await supabase
+        const { data: form1112Data } = await supabase
           .from('form1112master')
           .select('IncidentRegion')
           .eq('IRN', item.IRN)
           .maybeSingle();
-          
+
         let cpmName = 'Claims Manager';
-        
-        if (!form1112Error && form1112Data && form1112Data.IncidentRegion) {
-          // Get CPM details based on region
-          const { data: cpmUserData, error: cpmUserError } = await supabase
+        if (form1112Data?.IncidentRegion) {
+          const { data: cpmUserData } = await supabase
             .from('owcstaffmaster')
-            .select('OSMFirstName, OSMLastName')
+            .select('OSMFirstName, OSMListName:OSMLastName') // safe alias if needed
             .eq('InchargeRegion', form1112Data.IncidentRegion)
             .eq('OSMDesignation', 'Claims Manager')
             .maybeSingle();
-            
-          if (!cpmUserError && cpmUserData) {
-            cpmName = `${cpmUserData.OSMFirstName} ${cpmUserData.OSMLastName} (Claims Manager)`;
+          if (cpmUserData) {
+            const last = (cpmUserData as any).OSMLastName ?? (cpmUserData as any).OSMListName ?? '';
+            cpmName = `${cpmUserData.OSMFirstName} ${last} (Claims Manager)`;
           }
         }
-        
+
         return {
           IRN: item.IRN,
-          DisplayIRN: '', // Will be populated later
+          DisplayIRN: '',
           SubmissionType: item.IncidentType || '',
           Status: item.CPMRStatus || '',
           DecisionReason: item.CPMRDecisionReason || '',
@@ -391,7 +358,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         };
       }) || []);
 
-      // 8. Fetch from form6master
+      // 8. form6master
       const { data: form6Data, error: form6Error } = await supabase
         .from('form6master')
         .select('IRN, IncidentType, F6MStatus, F6MApprovalDate')
@@ -402,7 +369,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       const formattedForm6Data = form6Data?.map(item => ({
         IRN: item.IRN,
-        DisplayIRN: '', // Will be populated later
+        DisplayIRN: '',
         SubmissionType: `${item.IncidentType} - Form6`,
         Status: item.F6MStatus || '',
         DecisionReason: 'Notification Received - Insurance Company',
@@ -410,7 +377,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         DecisionDate: item.F6MApprovalDate || ''
       })) || [];
 
-      // 9. Fetch from form18master
+      // 9. form18master
       const { data: form18Data, error: form18Error } = await supabase
         .from('form18master')
         .select('IRN, IncidentType, F18MStatus, F18MEmployerDecisionReason, F18MWorkerDecisionReason, F18MEmployerAcceptedDate, F18MWorkerAcceptedDate')
@@ -420,14 +387,11 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
       if (form18Error) throw form18Error;
 
       const formattedForm18Data: any[] = [];
-      
-      // Process Form18 data based on status
       form18Data?.forEach(item => {
-        // Employer Accepted
         if (item.F18MStatus === 'EmployerAccepted' || item.F18MStatus === 'NotifiedToWorker' || item.F18MStatus === 'WorkerAccepted') {
           formattedForm18Data.push({
             IRN: item.IRN,
-            DisplayIRN: '', // Will be populated later
+            DisplayIRN: '',
             SubmissionType: `${item.IncidentType} - Form18 Notification`,
             Status: 'EmployerAccepted',
             DecisionReason: item.F18MEmployerDecisionReason || '',
@@ -435,13 +399,10 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
             DecisionDate: item.F18MEmployerAcceptedDate || ''
           });
         }
-        
-        // Notified to Worker
         if (item.F18MStatus === 'NotifiedToWorker' || item.F18MStatus === 'WorkerAccepted') {
-          // Get locked by user name
           formattedForm18Data.push({
             IRN: item.IRN,
-            DisplayIRN: '', // Will be populated later
+            DisplayIRN: '',
             SubmissionType: `${item.IncidentType} - Form18 Notification`,
             Status: 'NotifiedToWorker',
             DecisionReason: '--',
@@ -449,12 +410,10 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
             DecisionDate: item.F18MEmployerAcceptedDate || ''
           });
         }
-        
-        // Worker Accepted
         if (item.F18MStatus === 'WorkerAccepted') {
           formattedForm18Data.push({
             IRN: item.IRN,
-            DisplayIRN: '', // Will be populated later
+            DisplayIRN: '',
             SubmissionType: `${item.IncidentType} - Form18 Notification`,
             Status: 'WorkerAccepted',
             DecisionReason: item.F18MWorkerDecisionReason || '',
@@ -464,7 +423,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         }
       });
 
-      // 10. Fetch from claimsawardedcommissionersreview
+      // 10. claimsawardedcommissionersreview
       const { data: cacrData, error: cacrError } = await supabase
         .from('claimsawardedcommissionersreview')
         .select('IRN, IncidentType, CACRReviewStatus, CACRDecisionReason, CACRSubmissionDate')
@@ -475,15 +434,12 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       const formattedCACRData = cacrData?.map(item => {
         let decisionTakenBy = 'Commissioner';
-        
-        // Check if status contains "Chief"
         if (item.CACRReviewStatus && item.CACRReviewStatus.includes('Chief')) {
           decisionTakenBy = 'Chief Commissioner';
         }
-        
         return {
           IRN: item.IRN,
-          DisplayIRN: '', // Will be populated later
+          DisplayIRN: '',
           SubmissionType: item.IncidentType || '',
           Status: item.CACRReviewStatus || '',
           DecisionReason: item.CACRDecisionReason || '',
@@ -492,7 +448,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
         };
       }) || [];
 
-      // 11. Fetch from claimsawardedregistrarreview
+      // 11. claimsawardedregistrarreview
       const { data: carrData, error: carrError } = await supabase
         .from('claimsawardedregistrarreview')
         .select('IRN, IncidentType, CARRReviewStatus, CARRDecisionReason, CARRSubmissionDate')
@@ -503,7 +459,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       const formattedCARRData = carrData?.map(item => ({
         IRN: item.IRN,
-        DisplayIRN: '', // Will be populated later
+        DisplayIRN: '',
         SubmissionType: item.IncidentType || '',
         Status: item.CARRReviewStatus || '',
         DecisionReason: item.CARRDecisionReason || '',
@@ -512,7 +468,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
       })) || [];
 
       // Combine all data
-      allDecisions = [
+      let all = [
         ...formattedTimeBarredData,
         ...formattedPrescreeningData,
         ...formattedRegistrarData,
@@ -534,26 +490,19 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
       if (form1112Error) throw form1112Error;
 
-      // Update DisplayIRN in all decisions
       if (form1112Data && form1112Data.length > 0) {
         const displayIRN = form1112Data[0].DisplayIRN;
-        allDecisions = allDecisions.map(decision => ({
-          ...decision,
-          DisplayIRN: displayIRN
-        }));
+        all = all.map(decision => ({ ...decision, DisplayIRN: displayIRN }));
       }
 
       // Extract unique values for filters
-      const uniqueStatuses = [...new Set(allDecisions.map(item => item.Status))].filter(Boolean);
-      const uniqueSubmissionTypes = [...new Set(allDecisions.map(item => item.SubmissionType))].filter(Boolean);
-      
-      console.log('Prescreening data:', prescreeningData);
-      console.log('Formatted prescreening data:', formattedPrescreeningData);
+      const uniqueStatuses = [...new Set(all.map(item => item.Status))].filter(Boolean);
+      const uniqueSubmissionTypes = [...new Set(all.map(item => item.SubmissionType))].filter(Boolean);
 
       setStatuses(uniqueStatuses);
       setSubmissionTypes(uniqueSubmissionTypes);
-      setClaimDecisions(allDecisions);
-      setFilteredDecisions(allDecisions);
+      setClaimDecisions(all);
+      setFilteredDecisions(all);
     } catch (err: any) {
       console.error('Error fetching claim data:', err);
       setDecisionError(err.message || 'Failed to load claim decisions');
@@ -565,7 +514,6 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
   const applyFilters = () => {
     let filtered = claimDecisions;
 
-    // Search filter
     if (searchTerm) {
       filtered = filtered.filter(decision =>
         decision.DisplayIRN.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -576,17 +524,14 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
       );
     }
 
-    // Status filter
     if (selectedStatus) {
       filtered = filtered.filter(decision => decision.Status === selectedStatus);
     }
 
-    // Review type filter
     if (selectedReviewType) {
       filtered = filtered.filter(decision => decision.SubmissionType === selectedReviewType);
     }
 
-    // Date range filter
     if (dateFrom) {
       filtered = filtered.filter(decision => {
         const decisionDate = new Date(decision.DecisionDate);
@@ -629,58 +574,52 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
 
   const checkLockStatus = async () => {
     if (!irn || !userStaffID) return;
+    if (readOnly) {
+      setIsLocked(false);
+      setLockedBy(null);
+      return;
+    }
 
     try {
       setLoading(true);
-      
-      // Check if there's an existing lock record
+
       const { data, error } = await supabase
         .from('approvedclaimscporeview')
         .select('LockedByCPOID')
         .eq('IRN', irn)
-        .maybeSingle(); // Use maybeSingle() instead of single() to handle no results
+        .maybeSingle();
 
       if (error) throw error;
 
       let lockedByName = null;
-      let lockedByCPOID = null;
 
-      if (!error && data && data.LockedByCPOID != null) {
-        lockedByCPOID = data.LockedByCPOID.toString();
-
+      if (data && data.LockedByCPOID != null) {
         if (data.LockedByCPOID === 0) {
-          // Explicitly state no lock
-          lockedByName = null;
-          lockedByCPOID = null;
           setIsLocked(false);
         } else if (data.LockedByCPOID.toString() !== userStaffID) {
-          // Only consider it locked if it's locked by someone else
-          // Get the name of the user who locked the record
-          const { data: userData, error: userError } = await supabase
+          const { data: userData } = await supabase
             .from('owcstaffmaster')
             .select('OSMFirstName, OSMLastName')
             .eq('OSMStaffID', data.LockedByCPOID)
             .maybeSingle();
 
-          if (!userError && userData) {
+          if (userData) {
             lockedByName = `${userData.OSMFirstName} ${userData.OSMLastName}`;
           } else {
             lockedByName = 'Unknown User';
           }
-          
+
           setIsLocked(true);
         } else {
-          // Locked by current user, so not considered locked for UI purposes
           setIsLocked(false);
         }
       } else {
         setIsLocked(false);
       }
-      
+
       setLockedBy(lockedByName);
     } catch (err) {
       console.error('Error checking lock status:', err);
-      // Don't set error state here as it's not critical
       setIsLocked(false);
       setLockedBy(null);
     } finally {
@@ -689,32 +628,28 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
   };
 
   const lockRecord = async () => {
-    if (!userStaffID) return;
-    
+    if (!userStaffID || readOnly) return; // NEW: never lock in read-only
+
     try {
-      // Check if a record exists
       const { data: existingRecord, error: checkError } = await supabase
         .from('approvedclaimscporeview')
         .select('LockedByCPOID')
         .eq('IRN', irn)
         .maybeSingle();
-        
+
       if (checkError && checkError.code !== 'PGRST116') {
         throw checkError;
       }
-      
+
       if (existingRecord) {
-        // If record exists and is not locked or locked by current user, update it
         if (!existingRecord.LockedByCPOID || existingRecord.LockedByCPOID === 0 || existingRecord.LockedByCPOID.toString() === userStaffID) {
           const { error: updateError } = await supabase
             .from('approvedclaimscporeview')
             .update({ LockedByCPOID: userStaffID })
             .eq('IRN', irn);
-            
           if (updateError) throw updateError;
         }
       } else {
-        // If record doesn't exist, create it
         const { error: insertError } = await supabase
           .from('approvedclaimscporeview')
           .insert({
@@ -723,7 +658,6 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
             CPORStatus: 'Pending',
             IncidentType: claimData?.IncidentType || 'Injury'
           });
-          
         if (insertError) throw insertError;
       }
     } catch (err) {
@@ -731,22 +665,7 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
     }
   };
 
-	{/* const unlockRecord = async () => {
-    if (!userStaffID) return;
-    
-    try {
-      // Unlock the record only if it's locked by the current user
-      const { error: unlockError } = await supabase
-        .from('approvedclaimscporeview')
-        .update({ LockedByCPOID: 0 })
-        .eq('IRN', irn)
-        .eq('LockedByCPOID', userStaffID);
-        
-      if (unlockError) throw unlockError;
-    } catch (err) {
-      console.error('Error unlocking record:', err);
-    }
-  }; */}
+  // const unlockRecord = async () => { ... } // keep commented like original
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({
@@ -755,26 +674,20 @@ const CPODeathClaimReviewForm: React.FC<CPOClaimReviewFormProps> = ({ irn, onClo
     }));
   };
 
-const handleCloseAllFromChild = () => {
-  // Optionally collapse/open sections if you want:
-  setExpandedSections({ details: false, history: false, calculation: false });
+  const handleCloseAllFromChild = () => {
+    setExpandedSections({ details: false, history: false, calculation: false });
+    onClose();
+  };
 
-  // Then close THIS parent (returns to dashboard or whatever your onClose does)
-  onClose();
-};
-
-
-	
   const handleCloseForm = () => {
-    // Unlock the record before closing
-  //  unlockRecord();
+    // if (!readOnly) unlockRecord();
     onClose();
   };
 
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md"> 
+        <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
           <div className="flex flex-col items-center justify-center">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mb-4"></div>
             <p className="text-gray-700">Loading claim data...</p>
@@ -784,7 +697,8 @@ const handleCloseAllFromChild = () => {
     );
   }
 
-  if (isLocked && lockedBy) {
+  // Only block if NOT read-only
+  if (!readOnly && isLocked && lockedBy) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
         <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
@@ -796,7 +710,7 @@ const handleCloseAllFromChild = () => {
             This claim is currently being processed by {lockedBy}. Please try again later.
           </p>
           <div className="flex justify-end">
-            <button 
+            <button
               onClick={onClose}
               className="btn btn-primary"
             >
@@ -818,7 +732,7 @@ const handleCloseAllFromChild = () => {
           </div>
           <p className="text-gray-700 mb-4">{error}</p>
           <div className="flex justify-end">
-            <button 
+            <button
               onClick={onClose}
               className="btn btn-primary"
             >
@@ -832,7 +746,7 @@ const handleCloseAllFromChild = () => {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] overflow-y-auto"> 
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white z-10">
           <h2 className="text-xl font-semibold text-gray-900">
             Death Claim Review - {claimData?.DisplayIRN}
@@ -847,19 +761,28 @@ const handleCloseAllFromChild = () => {
           </button>
         </div>
 
+        {/* READ-ONLY banner */}
+        {readOnly && (
+          <div className="m-4 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+            You are viewing this claim in <strong>Read-Only</strong> mode. No changes will be saved and the record will not be locked.
+          </div>
+        )}
+
         <div className="p-6">
           {/* Form124View Section */}
           <div className="mb-8">
-            <div className="flex justify-between items-center mb-4 bg-gray-50 p-3 rounded-lg cursor-pointer" 
-                onClick={() => toggleSection('details')}>
+            <div
+              className="flex justify-between items-center mb-4 bg-gray-50 p-3 rounded-lg cursor-pointer"
+              onClick={() => toggleSection('details')}
+            >
               <h3 className="text-lg font-semibold text-primary">Death Claim Details</h3>
               <button className="text-primary hover:text-primary-dark">
                 {expandedSections.details ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
               </button>
-            </div> 
+            </div>
             {expandedSections.details && (
               <div className="bg-white p-4 rounded-lg border border-gray-200">
-                <Form124View irn={irn}  variant="embedded" className="mt-4" />
+                <Form124View irn={irn} variant="embedded" className="mt-4" /* readOnly={readOnly} */ />
               </div>
             )}
           </div>
@@ -867,10 +790,12 @@ const handleCloseAllFromChild = () => {
           {/* Divider */}
           <hr className="my-8 border-t border-gray-300" />
 
-          {/* ListClaimDecisions Section */}
+          {/* Claim History */}
           <div className="mb-8">
-            <div className="flex justify-between items-center mb-4 bg-gray-50 p-3 rounded-lg cursor-pointer" 
-                 onClick={() => toggleSection('history')}>
+            <div
+              className="flex justify-between items-center mb-4 bg-gray-50 p-3 rounded-lg cursor-pointer"
+              onClick={() => toggleSection('history')}
+            >
               <h3 className="text-lg font-semibold text-primary">Claim History</h3>
               <button className="text-primary hover:text-primary-dark">
                 {expandedSections.history ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
@@ -884,18 +809,18 @@ const handleCloseAllFromChild = () => {
                     <div className="flex flex-col md:flex-row md:items-center space-y-3 md:space-y-0 md:space-x-4">
                       <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-                        <input 
-                          type="text" 
-                          placeholder="Search by status, reason..." 
+                        <input
+                          type="text"
+                          placeholder="Search by status, reason..."
                           className="pl-10 w-full px-3 py-2 border border-gray-300 rounded-md"
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
                         />
                       </div>
-                      
+
                       <div className="flex flex-wrap gap-2">
                         <div className="relative">
-                          <select 
+                          <select
                             className="py-2 px-3 border border-gray-300 rounded-md appearance-none pr-8"
                             value={selectedStatus}
                             onChange={(e) => setSelectedStatus(e.target.value)}
@@ -907,9 +832,9 @@ const handleCloseAllFromChild = () => {
                           </select>
                           <Filter className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 h-4 w-4 pointer-events-none" />
                         </div>
-                        
+
                         <div className="relative">
-                          <select 
+                          <select
                             className="py-2 px-3 border border-gray-300 rounded-md appearance-none pr-8"
                             value={selectedReviewType}
                             onChange={(e) => setSelectedReviewType(e.target.value)}
@@ -921,30 +846,30 @@ const handleCloseAllFromChild = () => {
                           </select>
                           <Filter className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 h-4 w-4 pointer-events-none" />
                         </div>
-                        
+
                         <div className="relative">
                           <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                          <input 
-                            type="date" 
-                            placeholder="From Date" 
+                          <input
+                            type="date"
+                            placeholder="From Date"
                             className="pl-10 py-2 px-3 border border-gray-300 rounded-md"
                             value={dateFrom}
                             onChange={(e) => setDateFrom(e.target.value)}
                           />
                         </div>
-                        
+
                         <div className="relative">
                           <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                          <input 
-                            type="date" 
-                            placeholder="To Date" 
+                          <input
+                            type="date"
+                            placeholder="To Date"
                             className="pl-10 py-2 px-3 border border-gray-300 rounded-md"
                             value={dateTo}
                             onChange={(e) => setDateTo(e.target.value)}
                           />
                         </div>
-                        
-                        <button 
+
+                        <button
                           onClick={clearFilters}
                           className="py-2 px-3 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                         >
@@ -1037,20 +962,23 @@ const handleCloseAllFromChild = () => {
 
           {/* CompensationCalculation Section */}
           <div>
-            <div className="flex justify-between items-center mb-4 bg-gray-50 p-3 rounded-lg cursor-pointer" 
-                 onClick={() => toggleSection('calculation')}>
+            <div
+              className="flex justify-between items-center mb-4 bg-gray-50 p-3 rounded-lg cursor-pointer"
+              onClick={() => toggleSection('calculation')}
+            >
               <h3 className="text-lg font-semibold text-primary">Compensation Calculation</h3>
               <button className="text-primary hover:text-primary-dark">
                 {expandedSections.calculation ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
               </button>
             </div>
             {expandedSections.calculation && (
-              <div className="bg-white p-4 rounded-lg border border-gray-200">
-                {/* Pass the irn directly without additional lock check since it's already handled at form load */}
-                <CompensationCalculation 
-                  irn={irn} 
-                  onClose={() => toggleSection('calculation')} 
-									onCloseAll={handleCloseAllFromChild}   // ✅ key line
+              <div className={`p-4 rounded-lg border ${readOnly ? 'bg-gray-50 border-dashed' : 'bg-white border-gray-200'}`}>
+                {/* Pass the irn directly; lock/read-only handled by this form */}
+                <CompensationCalculation
+                  irn={irn}
+                  readOnly={readOnly}
+                  onClose={() => toggleSection('calculation')}
+                  onCloseAll={handleCloseAllFromChild}
                 />
               </div>
             )}

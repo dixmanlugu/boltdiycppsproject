@@ -1,3 +1,4 @@
+// changes: make DisplayIRN prop optional, add local state + fetch from workerirn when missing
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../services/supabase';
 
@@ -23,7 +24,7 @@ interface InjuryCheckList {
 interface PersonalDetails {
   CCPDPersonFirstName: string;
   CCPDPersonLastName: string;
- CCPDPersonDOB: string | null;  
+  CCPDPersonDOB: string | null;  
   CCPDRelationToWorker: string;
   CCPDDegreeOfDependance: string;
   CCPDCompensationAmount: string;
@@ -31,7 +32,7 @@ interface PersonalDetails {
 
 interface CompensationBreakupDetailsViewProps {
   IRN: string;
-  DisplayIRN: string;
+  DisplayIRN?: string;             // 👈 make optional
   IncidentType: string;
 }
 
@@ -42,7 +43,7 @@ const money = (n: number) => `K${(n || 0).toLocaleString()}`;
 const pretty = (d?: string | Date | null) => {
   if (!d) return '--';
   const dt = new Date(d);
-  if (isNaN(dt.getTime())) return d; // show raw if unparsable
+  if (isNaN(dt.getTime())) return d as string; // show raw if unparsable
   const dd = String(dt.getDate()).padStart(2, '0');
   const mm = String(dt.getMonth() + 1).padStart(2, '0');
   const yyyy = dt.getFullYear();
@@ -56,12 +57,35 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 👇 Local display IRN (falls back to prop, auto-fetches if missing)
+  const [displayIRNLocal, setDisplayIRNLocal] = useState<string>(DisplayIRN ?? '');
+
+  // If parent didn't pass DisplayIRN, fetch it from workerirn
+  useEffect(() => {
+    (async () => {
+      if (DisplayIRN) {
+        setDisplayIRNLocal(DisplayIRN);
+        return;
+      }
+      if (!IRN) return;
+      const { data, error } = await supabase
+        .from('workerirn')
+        .select('DisplayIRN')
+        .eq('IRN', IRN)          // IRN in workerirn is often stored as text; don't parse
+        .maybeSingle();
+      if (!error && data?.DisplayIRN) {
+        setDisplayIRNLocal(String(data.DisplayIRN));
+      }
+    })();
+  }, [IRN, DisplayIRN]);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoadingData(true);
         setError(null);
 
+        // For these tables IRN seems numeric; keep parseInt here
         const irnNumber = parseInt(IRN, 10);
         if (isNaN(irnNumber)) throw new Error('Invalid IRN: must be a number');
 
@@ -71,23 +95,23 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
           .eq('IRN', irnNumber)
           .maybeSingle();
         if (workerError) throw workerError;
-       setWorkerDetails(workerRow as unknown as WorkerDetails | null);
+        setWorkerDetails(workerRow as unknown as WorkerDetails | null);
 
         if (IncidentType === 'Injury') {
-         const { data: injuryRows, error: injuryError } = await supabase
+          const { data: injuryRows, error: injuryError } = await supabase
             .from('injurycasechecklist')
             .select('*')
             .eq('IRN', irnNumber);
           if (injuryError) throw injuryError;
-          setInjuryCheckList(injuryRows || []); // ← was injuryCheckList
+          setInjuryCheckList(injuryRows || []);
         }
 
-      const { data: personalRows, error: personalError } = await supabase
+        const { data: personalRows, error: personalError } = await supabase
           .from('claimcompensationpersonaldetails')
           .select('*')
           .eq('IRN', irnNumber);
         if (personalError) throw personalError;
-        setPersonalDetails(personalRows || []); // ← was personalDetails
+        setPersonalDetails(personalRows || []);
 
         setLoadingData(false);
       } catch (err: any) {
@@ -135,17 +159,16 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
     );
   }
 
-  // tolerate either CCWDWorkerDOB (preferred) or WorkerDOB (legacy)
   const workerDOBRaw =
     workerDetails.CCWDWorkerDOB ??
     (workerDetails as any).WorkerDOB ??
     null;
-	
+
   const data = {
-    display_irn: DisplayIRN,
+    display_irn: displayIRNLocal,       // 👈 use local (prop or fetched)
     worker_first_name: workerDetails.CCWDWorkerFirstName,
     worker_last_name: workerDetails.CCWDWorkerLastName,
-    worker_date_of_birth: pretty(workerDOBRaw),          // ← now formatted + shown
+    worker_date_of_birth: pretty(workerDOBRaw),
     annual_wage: parseFloat(workerDetails.CCWDAnnualWage) || 0,
     total_compensation: parseFloat(workerDetails.CCWDCompensationAmount) || 0,
     medical_expenses: parseFloat(workerDetails.CCWDMedicalExpenses) || 0,
@@ -156,7 +179,7 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
     dependents: personalDetails.map(detail => ({
       name: `${detail.CCPDPersonFirstName} ${detail.CCPDPersonLastName}`.trim(),
       relationship: detail.CCPDRelationToWorker,
-      date_of_birth: pretty(detail.CCPDPersonDOB),       // ← pretty format dependents' DOB to
+      date_of_birth: pretty(detail.CCPDPersonDOB),
       degree_of_dependence: detail.CCPDDegreeOfDependance,
       compensation_amount: parseFloat(detail.CCPDCompensationAmount) || 0
     }))
@@ -171,10 +194,13 @@ const CompensationBreakupDetailsView: React.FC<CompensationBreakupDetailsViewPro
         <div className="bg-surface-dark p-3 rounded-md text-sm">
           <p className="text-textSecondary">
             <span className="font-medium">Display IRN (CRN): </span>
-            {data.display_irn}
+            {data.display_irn || '--' /* 👈 safe fallback */}
           </p>
         </div>
       </div>
+
+      {/* ... rest of your JSX unchanged ... */}
+
 
       <div className="mb-6">
         <h2 className="text-base font-semibold mb-3 text-textSecondary">Worker Information</h2>

@@ -51,12 +51,9 @@
   }
   
   .btn-primary {
-    @apply text-white;
-    background-color: var(--primary);
+    @apply bg-[var(--primary)] hover:bg-[var(--primary-dark)] text-white focus:ring-[var(--primary)];
   }
-  .btn-primary:hover { background-color: var(--primary-dark); }
-  .btn-primary:focus { --tw-ring-color: var(--primary); }
-
+  
   .btn-secondary {
     @apply bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 focus:ring-gray-300;
   }
@@ -74,8 +71,7 @@
   }
   
   .input {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:border-[var(--primary)];
-    --tw-ring-color: var(--primary);
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)];
   }
   
   .card {
@@ -87,36 +83,6 @@
   }
   
   .step-circle {
-    @apply flex items-center justify-center w-10 h-10 text-sm font-bold rounded-full text-white mb-2;
-    background-color: var(--primary);
-  }
-}
-
-/* ---------- SYSTEM-WIDE TABLE HEADER STYLE ---------- */
-@layer base {
-  /* Apply to all tables by default; opt out with .no-standard-table */
-  table:not(.no-standard-table) thead {
-    @apply text-white;
-    background-color: var(--primary) !important;
-    color: #fff !important;
-  }
-
-  table:not(.no-standard-table) thead th,
-  table:not(.no-standard-table) thead td {
-    @apply font-semibold uppercase tracking-wider;
-    border-left: 1px solid rgba(255, 255, 255, 0.2);
-  }
-
-  /* Dark mode variant (if you toggle .dark on <html>) */
-  .dark table:not(.no-standard-table) thead {
-    background-color: var(--primary-dark) !important;
-  }
-
-  /* Print-friendly: ensure header contrast on paper */
-  @media print {
-    table thead {
-      background: #000 !important;
-      color: #fff !important;
-    }
+    @apply flex items-center justify-center w-10 h-10 text-sm font-bold rounded-full bg-[var(--primary)] text-white mb-2;
   }
 }

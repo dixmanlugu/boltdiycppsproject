@@ -6,8 +6,8 @@ import './compensation-calculation.css';
 
 interface CompensationCalculationProps {
   irn?: string;
+  readOnly?: boolean; // ← ADD
   onClose: () => void;
-  /** NEW: when finalize succeeds, also close the parent (110cpoclaimreviewform) */
   onCloseAll?: () => void;
 }
 
@@ -81,13 +81,14 @@ type ChecklistRow = {
   compensation: number;
 };
 
-const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, onClose, onCloseAll }) => {
+const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, readOnly = false, onClose, onCloseAll }) => {
   const [searchIRN, setSearchIRN] = useState(irn || '');
   const [workerDetails, setWorkerDetails] = useState<WorkerDetails | null>(null);
   const [injuryDetails, setInjuryDetails] = useState<InjuryDetails | null>(null);
   const [dependants, setDependants] = useState<DependantDetails[]>([]);
   const [employmentDetails, setEmploymentDetails] = useState<EmploymentDetails | null>(null);
-
+  const [localReadOnly, setLocalReadOnly] = useState<boolean>(readOnly);
+  const [showLockPrompt, setShowLockPrompt] = useState<boolean>(false);
   const [calculationData, setCalculationData] = useState<CalculationData>({
     IRN: '',
     WorkerID: '',
@@ -166,6 +167,39 @@ const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, 
     if (onClose) onClose();
   }, [onClose]);
 
+
+const checkLockAndMaybePrompt = useCallback(async () => {
+  if (!irn || !userStaffID) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('approvedclaimscporeview')
+      .select('LockedByCPOID')
+      .eq('IRN', irn)
+      .maybeSingle();
+    if (error) throw error;
+
+    const lockedBy = data?.LockedByCPOID ?? 0;
+
+    if (!lockedBy) {
+      // Unlocked: ask user whether to lock or continue in read-only
+      setShowLockPrompt(true);
+      setLocalReadOnly(true); // default to read-only until they choose
+    } else if (String(lockedBy) === String(userStaffID)) {
+      // Already locked by me: allow editing
+      setLocalReadOnly(false);
+    } else {
+      // Locked by someone else: your existing "Record Locked" UI path will handle it
+    }
+  } catch (e) {
+    console.error('Lock check failed:', e);
+  }
+}, [irn, userStaffID]);
+
+
+
+
+
   /** NEW: helper to also close the parent container */
   const handleCloseAll = useCallback(() => {
     if (onCloseAll) {
@@ -180,6 +214,53 @@ const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, 
     if (irn) fetchInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [irn]);
+
+
+useEffect(() => {
+  if (!readOnly && irn && userStaffID) {
+    checkLockAndMaybePrompt();
+  }
+}, [readOnly, irn, userStaffID, checkLockAndMaybePrompt]);
+
+
+const lockNow = async () => {
+  try {
+    // ensure row exists, then update
+    const { data: existing, error: selErr } = await supabase
+      .from('approvedclaimscporeview')
+      .select('IRN')
+      .eq('IRN', irn)
+      .maybeSingle();
+    if (selErr && selErr.code !== 'PGRST116') throw selErr;
+
+    if (existing) {
+      const { error } = await supabase
+        .from('approvedclaimscporeview')
+        .update({ LockedByCPOID: userStaffID })
+        .eq('IRN', irn as string);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('approvedclaimscporeview').insert({
+        IRN: irn,
+        LockedByCPOID: userStaffID,
+        CPORStatus: 'Pending',
+        IncidentType: injuryDetails?.IncidentType || 'Injury',
+      });
+      if (error) throw error;
+    }
+
+    setLocalReadOnly(false);
+    setShowLockPrompt(false);
+  } catch (e) {
+    console.error('Lock failed:', e);
+  }
+};
+
+const proceedReadOnly = () => {
+  setLocalReadOnly(true);
+  setShowLockPrompt(false);
+};
+
 
   // ===== Helpers =====
   const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -258,6 +339,9 @@ const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, 
         };
       });
   };
+
+
+
 
   useEffect(() => {
     if (injuryDetails?.IncidentDate) {
@@ -1080,6 +1164,12 @@ const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, 
 
         {workerDetails && injuryDetails && (
           <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
+		   {/* Everything inside this fieldset becomes non-interactive when readOnly is true */}
+            <fieldset disabled={readOnly || localReadOnly}>
+
+
+		  
+		  
             {/* Claim details */}
             <div className="bg-gray-50 p-4 rounded-md mb-6">
               <h3 className="text-lg font-semibold mb-4 text-primary">Claim Details</h3>
@@ -1357,6 +1447,7 @@ const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, 
               <h4 className="font-medium text-primary mb-3 mt-6">Additional Expenses</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                 <div>
+				
                   <label htmlFor="CCWDMedicalExpenses" className="block text-sm font-medium text-gray-700 mb-1">Medical Expenses (+)</label>
                   <input type="number" id="CCWDMedicalExpenses" value={medicalExpenses} onChange={(e) => handleExpenseChange(e, 'medical')} className="input" min="0" />
                 </div>
@@ -1372,6 +1463,7 @@ const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, 
                 </div>
               </div>
 
+              {/* Findings & Recommendations */}
               {/* Findings & Recommendations */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
                 <div>
@@ -1457,72 +1549,94 @@ const CompensationCalculation: React.FC<CompensationCalculationProps> = ({ irn, 
                   </>
                 )}
               </div>
-            </div>
+            </div>{/* <-- closes the .card container */}
+            {/* Close the fieldset AFTER all interactive inputs */}
+            </fieldset>
 
-            {/* Actions */}
+            {/* Actions (stay outside the fieldset so they remain clickable even in readOnly) */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-end md:space-x-3 gap-2">
               <button type="button" onClick={onClose} className="btn btn-secondary">Close</button>
 
-              {/* Save Draft + inline success */}
-              <div className="flex flex-col items-start">
-                <button
-                  type="button"
-                  onClick={handleSaveDraft}
-                  className="btn btn-outline flex items-center"
-                  disabled={savingDraft}
-                  title="Save current progress without submitting for review"
-                >
-                  {savingDraft ? (
-                    <span className="flex items-center">
-                      <span className="animate-spin h-4 w-4 mr-2 border-t-2 border-b-2 border-current rounded-full"></span>
-                      Saving draft...
-                    </span>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4 mr-2" />
-                      Save Draft
-                    </>
-                  )}
-                </button>
-
-                {draftSuccess && (
-                  <div className="mt-2 text-xs px-2 py-1 rounded-md bg-green-50 text-green-700 flex items-center">
-                    <Check className="h-4 w-4 mr-1" />
-                    {draftSuccess}
+              {!readOnly && (
+                <>
+                  <div className="flex flex-col items-start">
+                    <button
+                      type="button"
+                      onClick={handleSaveDraft}
+                      className="btn btn-outline flex items-center"
+                      disabled={savingDraft}
+                      title="Save current progress without submitting for review"
+                    >
+                      {savingDraft ? (
+                        <span className="flex items-center">
+                          <span className="animate-spin h-4 w-4 mr-2 border-t-2 border-b-2 border-current rounded-full"></span>
+                          Saving draft...
+                        </span>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save Draft
+                        </>
+                      )}
+                    </button>
+                    {draftSuccess && (
+                      <div className="mt-2 text-xs px-2 py-1 rounded-md bg-green-50 text-green-700 flex items-center">
+                        <Check className="h-4 w-4 mr-1" />
+                        {draftSuccess}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {/* Accept */}
-              <button
-                type="button"
-                className="btn btn-primary flex items-center"
-                onClick={handleAcceptPreview}
-                disabled={
-                  (injuryDetails?.IncidentType === 'Injury' && !injuryChecklist.some((r) => r.checked && r.compensation > 0)) ||
-                  missingMandatoryForAccept.length > 0 ||
-                  !findings ||
-                  !recommendations
-                }
-                title="Review and finalize"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                Accept
-              </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary flex items-center"
+                    onClick={handleAcceptPreview}
+                    disabled={
+                      (injuryDetails?.IncidentType === 'Injury' && !injuryChecklist.some((r) => r.checked && r.compensation > 0)) ||
+                      missingMandatoryForAccept.length > 0 ||
+                      !findings ||
+                      !recommendations
+                    }
+                    title="Review and finalize"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Accept
+                  </button>
+                </>
+              )}
+            </div>
 
-              <div className="text-xs text-yellow-600 mt-1">
-                {injuryDetails?.IncidentType === 'Injury' && !injuryChecklist.some((r) => r.checked && r.compensation > 0) && (
-                  <p>Select at least one injury criterion with a non-zero amount to Accept.</p>
-                )}
-                {missingMandatoryForAccept.length > 0 && (
-                  <p>Mandatory documents required to Accept: {missingMandatoryForAccept.join(', ')}.</p>
-                )}
-                {(!findings || !recommendations) && <p>Findings and Recommendations are required to Accept.</p>}
-              </div>
+            <div className="text-xs text-yellow-600 mt-1">
+              {injuryDetails?.IncidentType === 'Injury' && !injuryChecklist.some((r) => r.checked && r.compensation > 0) && (
+                <p>Select at least one injury criterion with a non-zero amount to Accept.</p>
+              )}
+              {missingMandatoryForAccept.length > 0 && (
+                <p>Mandatory documents required to Accept: {missingMandatoryForAccept.join(', ')}.</p>
+              )}
+              {(!findings || !recommendations) && <p>Findings and Recommendations are required to Accept.</p>}
             </div>
           </form>
         )}
       </div>
+
+
+{showLockPrompt && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="absolute inset-0 bg-black/40"></div>
+    <div className="relative bg-white rounded-xl shadow-2xl max-w-md w-[95%] p-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-2">Lock this claim?</h3>
+      <p className="text-sm text-gray-700 mb-4">
+        Locking prevents others from editing this claim while you work. Do you want to lock it for editing, or continue in read-only mode?
+      </p>
+      <div className="flex justify-end gap-2">
+        <button onClick={proceedReadOnly} className="btn btn-secondary">No, Read-only</button>
+        <button onClick={lockNow} className="btn btn-primary">Yes, Lock</button>
+      </div>
+    </div>
+  </div>
+)}
+
+
 
       {/* ===== Summary Modal ===== */}
       {showSummary && (

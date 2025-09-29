@@ -1,7 +1,12 @@
+// /src/components/forms/ListPendingCompensationCalculationCPMReview.tsx
 import React, { useState, useEffect } from 'react';
 import { X, Search } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
+
+// NEW: overlay forms
+import Form328PendingCompensationCalculationCPMReviewInjury from './328PendingCompensationCalculationCPMReviewInjury';
+import Form324PendingCompensationCalculationCPMReviewDeath from './324PendingCompensationCalculationCPMReviewDeath';
 
 interface ListPendingCompensationCalculationCPMReviewProps {
   onClose: () => void;
@@ -14,7 +19,7 @@ interface CPMReviewData {
   WorkerFirstName: string;
   WorkerLastName: string;
   SubmissionDate: string;
-  IncidentType: string;
+  IncidentType: 'Injury' | 'Death' | string;
   CPMRID: string;
   CPMRStatus: string;
   IncidentRegion: string;
@@ -36,6 +41,13 @@ const ListPendingCompensationCalculationCPMReview: React.FC<ListPendingCompensat
   const [recordsPerPage] = useState(10);
   const [totalRecords, setTotalRecords] = useState(0);
   const [userRegion, setUserRegion] = useState<string | null>(null);
+	// add state
+const [sortAsc, setSortAsc] = useState(false); // default: newest first
+
+  // NEW: overlays + selection
+  const [showForm328, setShowForm328] = useState(false); // Injury
+  const [showForm324, setShowForm324] = useState(false); // Death
+  const [selectedIRN, setSelectedIRN] = useState<string>('');
 
   useEffect(() => {
     const fetchUserRegion = async () => {
@@ -60,13 +72,11 @@ const ListPendingCompensationCalculationCPMReview: React.FC<ListPendingCompensat
           setUserRegion(data.InchargeRegion);
         } else {
           console.warn('No region found for user:', profile.id);
-          // Default to a region for testing/development
           setUserRegion('Momase Region');
         }
       } catch (err) {
         console.error('Error fetching user region:', err);
         setError('Failed to fetch region information. Please try again later.');
-        // Default to a region for testing/development
         setUserRegion('Momase Region');
       }
     };
@@ -78,7 +88,8 @@ const ListPendingCompensationCalculationCPMReview: React.FC<ListPendingCompensat
     if (userRegion) {
       fetchCPMReviewList();
     }
-  }, [userRegion, currentPage, searchIRN, searchFirstName, searchLastName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRegion, currentPage, searchIRN, searchFirstName, searchLastName, sortAsc]);
 
   const fetchCPMReviewList = async () => {
     try {
@@ -90,68 +101,44 @@ const ListPendingCompensationCalculationCPMReview: React.FC<ListPendingCompensat
         return;
       }
       
-      // Get the count of matching records
+      // Count
       let countQuery = supabase
         .from('compensation_calculation_cpm_pending_view')
         .select('*', { count: 'exact', head: true })
         .eq('IncidentRegion', userRegion);
 
-      // Apply search filters if provided
-      if (searchIRN) {
-        countQuery = countQuery.ilike('DisplayIRN', `%${searchIRN}%`);
-      }
-      
-      if (searchFirstName) {
-        countQuery = countQuery.ilike('WorkerFirstName', `%${searchFirstName}%`);
-      }
-      
-      if (searchLastName) {
-        countQuery = countQuery.ilike('WorkerLastName', `%${searchLastName}%`);
-      }
+      if (searchIRN) countQuery = countQuery.ilike('DisplayIRN', `%${searchIRN}%`);
+      if (searchFirstName) countQuery = countQuery.ilike('WorkerFirstName', `%${searchFirstName}%`);
+      if (searchLastName) countQuery = countQuery.ilike('WorkerLastName', `%${searchLastName}%`);
 
       const { count, error: countError } = await countQuery;
-
       if (countError) throw countError;
       
       const totalCount = count || 0;
       setTotalRecords(totalCount);
       setTotalPages(Math.ceil(totalCount / recordsPerPage));
       
-      // Calculate pagination
+      // Page slice
       const start = (currentPage - 1) * recordsPerPage;
       
-      // Execute the SQL query to get the data
+      // Data
       let query = supabase
         .from('compensation_calculation_cpm_pending_view')
         .select('*')
         .eq('IncidentRegion', userRegion)
+				.order('SubmissionDate', { ascending: sortAsc, nullsFirst: !sortAsc }) // newest first => nulls last
+				.order('DisplayIRN', { ascending: true }) // tie-breaker
         .range(start, start + recordsPerPage - 1)
-        .order('SubmissionDate', { ascending: false });
+        .order('SubmissionDate', { ascending: sortAsc });
 
-      // Apply search filters if provided
-      if (searchIRN) {
-        query = query.ilike('DisplayIRN', `%${searchIRN}%`);
-      }
-      
-      if (searchFirstName) {
-        query = query.ilike('WorkerFirstName', `%${searchFirstName}%`);
-      }
-      
-      if (searchLastName) {
-        query = query.ilike('WorkerLastName', `%${searchLastName}%`);
-      }
+      if (searchIRN) query = query.ilike('DisplayIRN', `%${searchIRN}%`);
+      if (searchFirstName) query = query.ilike('WorkerFirstName', `%${searchFirstName}%`);
+      if (searchLastName) query = query.ilike('WorkerLastName', `%${searchLastName}%`);
 
       const { data, error } = await query;
-
       if (error) throw error;
 
-      if (!data || data.length === 0) {
-        setCPMReviewList([]);
-        return;
-      }
-
-      // Use the data directly from the view
-      setCPMReviewList(data);
+      setCPMReviewList(data || []);
     } catch (err: any) {
       console.error('Error fetching CPM review list:', err);
       setError(err.message || 'Failed to load CPM review list');
@@ -162,34 +149,48 @@ const ListPendingCompensationCalculationCPMReview: React.FC<ListPendingCompensat
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setCurrentPage(1); // Reset to first page when searching
+    setCurrentPage(1);
     fetchCPMReviewList();
   };
 
+//sorting click handler
+	const toggleSort = () => {
+  setSortAsc(prev => !prev);
+  setCurrentPage(1);
+};
+	
+  // UPDATED: open overlay like the reference component
   const handleView = (irn: string, incidentType: string) => {
     if (onSelectIRN) {
       onSelectIRN(irn, incidentType);
+      return;
+    }
+
+    setSelectedIRN(irn);
+
+    if (incidentType === 'Injury') {
+      setShowForm328(true);
+    } else if (incidentType === 'Death') {
+      setShowForm324(true);
     } else {
-      let url = '';
-      
-      // Determine the correct URL based on incident type
-      switch (incidentType) {
-        case 'Injury':
-          url = '/dashboard/cpmreview/injury-view';
-          break;
-        case 'Death':
-          url = '/dashboard/cpmreview/death-view';
-          break;
-        default:
-          url = '/dashboard/cpmreview/view';
-      }
-      
-      if (url) {
-        window.location.href = `${url}?IRN=${irn}`;
-      }
+      console.warn('Unknown IncidentType:', incidentType);
     }
   };
 
+  // Close overlays and clear selection
+const handleCloseForm = (refresh: boolean = false) => {
+  setShowForm328(false);
+  setShowForm324(false);
+  setSelectedIRN('');
+  if (refresh) {
+    // re-fetch the list so actioned record is gone
+    fetchCPMReviewList();
+  } else {
+    // still OK to refresh locks if you keep them
+    // fetchLocks(cpmReviewList.map(c => c.IRN));
+  }
+};
+	
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
   };
@@ -289,22 +290,26 @@ const ListPendingCompensationCalculationCPMReview: React.FC<ListPendingCompensat
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       CRN
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       First Name
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Last Name
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
-                      Submission Date
+                    <th   scope="col"
+  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 cursor-pointer select-none"
+  onClick={toggleSort}
+  title="Sort by Submission Date"
+>
+  Submission Date {sortAsc ? '▲' : '▼'}
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Incident Type
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Action
                     </th>
                   </tr>
@@ -344,6 +349,21 @@ const ListPendingCompensationCalculationCPMReview: React.FC<ListPendingCompensat
             <div className="text-center py-8">
               <p className="text-gray-600">No CPM Pending Claims.</p>
             </div>
+          )}
+
+          {/* NEW: Overlays inside this modal, mirroring your reference pattern */}
+          {showForm328 && (
+            <Form328PendingCompensationCalculationCPMReviewInjury
+              IRN={selectedIRN}
+              onCloseAll={handleCloseForm}
+            />
+          )}
+
+          {showForm324 && (
+            <Form324PendingCompensationCalculationCPMReviewDeath
+              IRN={selectedIRN}
+              onCloseAll={handleCloseForm}
+            />
           )}
 
           {/* Pagination */}

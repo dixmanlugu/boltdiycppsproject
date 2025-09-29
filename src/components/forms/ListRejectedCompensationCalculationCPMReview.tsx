@@ -1,7 +1,12 @@
+// /src/components/forms/ListRejectedCompensationCalculationCPMReview.tsx
 import React, { useState, useEffect } from 'react';
 import { X, Search } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../context/AuthContext';
+
+// NEW: Rejected viewer overlays
+import Form323RejectedCompensationCalculationCPMReviewInjury from './323RejectedCompensationCalculationCPMReviewInjury';
+import Form322RejectedCompensationCalculationCPMReviewDeath from './322RejectedCompensationCalculationCPMReviewDeath';
 
 interface ListRejectedCompensationCalculationCPMReviewProps {
   onClose: () => void;
@@ -37,6 +42,11 @@ const ListRejectedCompensationCalculationCPMReview: React.FC<ListRejectedCompens
   const [totalRecords, setTotalRecords] = useState(0);
   const [userRegion, setUserRegion] = useState<string | null>(null);
 
+  // NEW: overlays
+  const [showInjuryRejected, setShowInjuryRejected] = useState(false);
+  const [showDeathRejected, setShowDeathRejected] = useState(false);
+  const [selectedIRN, setSelectedIRN] = useState<string>('');
+
   useEffect(() => {
     const fetchUserRegion = async () => {
       try {
@@ -51,22 +61,11 @@ const ListRejectedCompensationCalculationCPMReview: React.FC<ListRejectedCompens
           .eq('cppsid', profile.id)
           .maybeSingle();
         
-        if (error) {
-          console.error('Database error:', error);
-          throw error;
-        }
-        
-        if (data) {
-          setUserRegion(data.InchargeRegion);
-        } else {
-          console.warn('No region found for user:', profile.id);
-          // Default to a region for testing/development
-          setUserRegion('Momase Region');
-        }
+        if (error) throw error;
+        setUserRegion(data?.InchargeRegion ?? 'Momase Region');
       } catch (err) {
         console.error('Error fetching user region:', err);
         setError('Failed to fetch region information. Please try again later.');
-        // Default to a region for testing/development
         setUserRegion('Momase Region');
       }
     };
@@ -78,6 +77,7 @@ const ListRejectedCompensationCalculationCPMReview: React.FC<ListRejectedCompens
     if (userRegion) {
       fetchCPMReviewList();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRegion, currentPage, searchIRN, searchFirstName, searchLastName]);
 
   const fetchCPMReviewList = async () => {
@@ -90,37 +90,26 @@ const ListRejectedCompensationCalculationCPMReview: React.FC<ListRejectedCompens
         return;
       }
       
-      // Get the count of matching records
+      // Count
       let countQuery = supabase
         .from('compensation_calculation_cpm_rejected_view')
         .select('*', { count: 'exact', head: true })
         .eq('IncidentRegion', userRegion);
 
-      // Apply search filters if provided
-      if (searchIRN) {
-        countQuery = countQuery.ilike('DisplayIRN', `%${searchIRN}%`);
-      }
-      
-      if (searchFirstName) {
-        countQuery = countQuery.ilike('WorkerFirstName', `%${searchFirstName}%`);
-      }
-      
-      if (searchLastName) {
-        countQuery = countQuery.ilike('WorkerLastName', `%${searchLastName}%`);
-      }
+      if (searchIRN) countQuery = countQuery.ilike('DisplayIRN', `%${searchIRN}%`);
+      if (searchFirstName) countQuery = countQuery.ilike('WorkerFirstName', `%${searchFirstName}%`);
+      if (searchLastName) countQuery = countQuery.ilike('WorkerLastName', `%${searchLastName}%`);
 
       const { count, error: countError } = await countQuery;
-
       if (countError) throw countError;
       
       const totalCount = count || 0;
       setTotalRecords(totalCount);
       setTotalPages(Math.ceil(totalCount / recordsPerPage));
       
-      // Calculate pagination
       const start = (currentPage - 1) * recordsPerPage;
       
-      // Execute the SQL query to get the data
+      // Data
       let query = supabase
         .from('compensation_calculation_cpm_rejected_view')
         .select('*')
@@ -128,30 +117,14 @@ const ListRejectedCompensationCalculationCPMReview: React.FC<ListRejectedCompens
         .range(start, start + recordsPerPage - 1)
         .order('SubmissionDate', { ascending: false });
 
-      // Apply search filters if provided
-      if (searchIRN) {
-        query = query.ilike('DisplayIRN', `%${searchIRN}%`);
-      }
-      
-      if (searchFirstName) {
-        query = query.ilike('WorkerFirstName', `%${searchFirstName}%`);
-      }
-      
-      if (searchLastName) {
-        query = query.ilike('WorkerLastName', `%${searchLastName}%`);
-      }
+      if (searchIRN) query = query.ilike('DisplayIRN', `%${searchIRN}%`);
+      if (searchFirstName) query = query.ilike('WorkerFirstName', `%${searchFirstName}%`);
+      if (searchLastName) query = query.ilike('WorkerLastName', `%${searchLastName}%`);
 
       const { data, error } = await query;
-
       if (error) throw error;
 
-      if (!data || data.length === 0) {
-        setCPMReviewList([]);
-        return;
-      }
-
-      // Use the data directly from the view
-      setCPMReviewList(data);
+      setCPMReviewList(data || []);
     } catch (err: any) {
       console.error('Error fetching CPM review list:', err);
       setError(err.message || 'Failed to load CPM review list');
@@ -162,37 +135,36 @@ const ListRejectedCompensationCalculationCPMReview: React.FC<ListRejectedCompens
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setCurrentPage(1); // Reset to first page when searching
+    setCurrentPage(1);
     fetchCPMReviewList();
   };
 
+  // UPDATED: open viewer overlays instead of navigating
   const handleView = (irn: string, incidentType: string) => {
     if (onSelectIRN) {
       onSelectIRN(irn, incidentType);
+      return;
+    }
+
+    setSelectedIRN(irn);
+    if (incidentType === 'Injury') {
+      setShowInjuryRejected(true);
+    } else if (incidentType === 'Death') {
+      setShowDeathRejected(true);
     } else {
-      let url = '';
-      
-      // Determine the correct URL based on incident type
-      switch (incidentType) {
-        case 'Injury':
-          url = '/dashboard/cpmreview/injury-view';
-          break;
-        case 'Death':
-          url = '/dashboard/cpmreview/death-view';
-          break;
-        default:
-          url = '/dashboard/cpmreview/view';
-      }
-      
-      if (url) {
-        window.location.href = `${url}?IRN=${irn}`;
-      }
+      console.warn('Unknown IncidentType:', incidentType);
     }
   };
 
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
+  const handleCloseOverlay = () => {
+    setShowInjuryRejected(false);
+    setShowDeathRejected(false);
+    setSelectedIRN('');
+    // If you want to refresh list after closing a viewer, uncomment:
+     fetchCPMReviewList();
   };
+
+  const handlePageChange = (page: number) => setCurrentPage(page);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -289,24 +261,12 @@ const ListRejectedCompensationCalculationCPMReview: React.FC<ListRejectedCompens
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      CRN
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      First Name
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Last Name
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Submission Date
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Incident Type
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Action
-                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CRN</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submission Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incident Type</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -344,6 +304,21 @@ const ListRejectedCompensationCalculationCPMReview: React.FC<ListRejectedCompens
             <div className="text-center py-8">
               <p className="text-gray-600">No CPM Rejected Claims.</p>
             </div>
+          )}
+
+          {/* Overlays */}
+          {showInjuryRejected && (
+            <Form323RejectedCompensationCalculationCPMReviewInjury
+              IRN={selectedIRN}
+              onCloseAll={handleCloseOverlay}
+            />
+          )}
+
+          {showDeathRejected && (
+            <Form322RejectedCompensationCalculationCPMReviewDeath
+              IRN={selectedIRN}
+              onCloseAll={handleCloseOverlay}
+            />
           )}
 
           {/* Pagination */}
